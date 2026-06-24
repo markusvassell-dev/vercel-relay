@@ -1,0 +1,9 @@
+vercel.json
+{
+  "crons": [
+    {
+      "path": "/api/weekly",
+      "schedule": "0 9 * * 1"
+    }
+  ]
+}

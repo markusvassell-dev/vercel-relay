@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #f6f2ea; }
+  ::-webkit-scrollbar { width: 10px; }
+  ::-webkit-scrollbar-thumb { background: #d8d0c0; border-radius: 8px; }
+</style>
+</helmet>
+
+<div style="min-height:100vh; background:#f6f2ea; font-family:'Hanken Grotesk',system-ui,sans-serif; color:#29251f; padding:24px 16px 64px;">
+  <div style="max-width:820px; margin:0 auto;">
+
+    <!-- ===== APP HEADER ===== -->
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:14px; padding:16px 20px; background:#fffdfa; border:1px solid #e8e1d4; border-radius:14px 14px 0 0; flex-wrap:wrap;">
+      <div style="display:flex; align-items:center; gap:12px;">
+        <div style="width:32px; height:32px; border-radius:9px; background:#c1632f; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:800; font-size:16px;">S</div>
+        <div>
+          <div style="font-weight:700; font-size:15px; line-height:1;">Scheduling</div>
+          <div style="font-size:11px; color:#9a8f7f; margin-top:3px; display:flex; align-items:center; gap:5px;"><span style="width:6px; height:6px; border-radius:50%; background:{{ headerDotColor }}; display:inline-block;"></span>{{ headerText }}</div>
+        </div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-family:'JetBrains Mono',monospace; font-size:14px; font-weight:600;">Mon, Jun 19</div>
+        <div style="font-size:11px; color:#9a8f7f; margin-top:2px;">7:41 AM MT</div>
+      </div>
+    </div>
+
+    <!-- ===== CONNECTION BAR ===== -->
+    <div style="padding:10px 20px; background:#fffdfa; border-left:1px solid #e8e1d4; border-right:1px solid #e8e1d4; border-bottom:1px solid #e8e1d4; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+      <div style="display:flex; align-items:center; gap:8px; font-size:12.5px; color:#7c7468;">
+        <span style="width:8px; height:8px; border-radius:50%; background:{{ connDotColor }}; display:inline-block; flex:none;"></span>
+        <span>{{ connText }}</span>
+      </div>
+      <div style="display:flex; gap:8px;">
+        <sc-if value="{{ connLive }}" hint-placeholder-val="{{ false }}">
+          <button onClick="{{ refresh }}" style="padding:6px 14px; font-size:12.5px; font-weight:600; font-family:inherit; color:#c1632f; background:#fff; border:1px solid #e0cdbc; border-radius:8px; cursor:pointer;">Refresh</button>
+          <button onClick="{{ disconnect }}" style="padding:6px 14px; font-size:12.5px; font-weight:500; font-family:inherit; color:#9a8f7f; background:transparent; border:1px solid transparent; border-radius:8px; cursor:pointer;">Disconnect</button>
+        </sc-if>
+        <sc-if value="{{ connCanConnect }}" hint-placeholder-val="{{ true }}">
+          <button onClick="{{ openConnect }}" style="padding:6px 14px; font-size:12.5px; font-weight:600; font-family:inherit; color:#fff; background:#c1632f; border:none; border-radius:8px; cursor:pointer;">Connect Karbon</button>
+        </sc-if>
+      </div>
+    </div>
+
+    <!-- ===== CONNECT PANEL ===== -->
+    <sc-if value="{{ showConnect }}" hint-placeholder-val="{{ false }}">
+      <div style="padding:16px 20px; background:#f9f5ee; border-left:1px solid #e8e1d4; border-right:1px solid #e8e1d4; border-bottom:1px solid #e8e1d4;">
+        <div style="font-weight:700; font-size:13.5px; margin-bottom:4px;">Connect to your Karbon feed</div>
+        <div style="font-size:12px; color:#9a8f7f; line-height:1.55; margin-bottom:12px; max-width:600px;">Paste the URL of your Karbon relay — a small backend that holds your API key, pulls active work items, and returns them as JSON (the browser can't call Karbon directly). It must allow CORS from this page. Expected shape is shown below.</div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <input value="{{ draftUrl }}" onInput="{{ onUrlInput }}" placeholder="https://your-relay.example.com/karbon-feed" style="flex:1; min-width:240px; padding:9px 12px; border:1px solid #e0d7c6; border-radius:8px; font-size:12.5px; font-family:'JetBrains Mono',monospace; background:#fff; color:#29251f; outline:none;"/>
+          <button onClick="{{ submitConnect }}" style="padding:9px 18px; font-size:13px; font-weight:600; font-family:inherit; color:#fff; background:#c1632f; border:none; border-radius:8px; cursor:pointer;">Connect</button>
+          <button onClick="{{ cancelConnect }}" style="padding:9px 16px; font-size:13px; font-weight:500; font-family:inherit; color:#9a8f7f; background:transparent; border:1px solid #e0d7c6; border-radius:8px; cursor:pointer;">Cancel</button>
+        </div>
+        <sc-if value="{{ connError }}" hint-placeholder-val="{{ false }}">
+          <div style="margin-top:10px; font-size:12px; color:#8f2f1f;">⚠ {{ errMsg }}</div>
+        </sc-if>
+        <div style="margin-top:14px; padding-top:12px; border-top:1px dashed #e0d7c6;">
+          <div style="font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:0.08em; text-transform:uppercase; color:#9a8f7f; margin-bottom:6px;">Expected JSON from the relay</div>
+          <pre style="margin:0; font-family:'JetBrains Mono',monospace; font-size:11px; line-height:1.55; color:#5f574c; white-space:pre-wrap; background:#fff; border:1px solid #efe6d6; border-radius:8px; padding:11px 13px; overflow:auto;">{ "tasks": [
+    { "task": "1120S Return",
+      "client": "Riverside Dental",
+      "assignee": "Jordan M.",     // omit / "" → Undetermined
+      "due": "2026-06-12",
+      "added": "2026-06-18",       // for "added this week"
+      "hours": 6.5,
+      "note": "Waiting on K-1 from client" }
+  ] }</pre>
+          <div style="font-size:11px; color:#9a8f7f; margin-top:8px; line-height:1.5;">Urgency tiers and the Overdue / Due-this-week / Added-this-week / Due-next-week splits are computed here from each task's <span style="font-family:'JetBrains Mono',monospace;">due</span> and <span style="font-family:'JetBrains Mono',monospace;">added</span> dates — the relay only sends raw fields.</div>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- ===== TABS ===== -->
+    <div style="display:flex; gap:0; padding:0 20px; background:#fffdfa; border:1px solid #e8e1d4; border-top:none; flex-wrap:wrap;">
+      <div onClick="{{ tabToday }}" style="padding:14px 4px; margin-right:24px; font-size:13.5px; cursor:pointer; font-weight:{{ todayWt }}; color:{{ todayCol }}; border-bottom:{{ todayBd }};">Today</div>
+      <div onClick="{{ tabWeek }}" style="padding:14px 4px; margin-right:24px; font-size:13.5px; cursor:pointer; font-weight:{{ weekWt }}; color:{{ weekCol }}; border-bottom:{{ weekBd }};">This Week</div>
+      <div onClick="{{ tabWork }}" style="padding:14px 4px; margin-right:24px; font-size:13.5px; cursor:pointer; font-weight:{{ workWt }}; color:{{ workCol }}; border-bottom:{{ workBd }};">Workload</div>
+      <div onClick="{{ tabReport }}" style="padding:14px 4px; font-size:13.5px; cursor:pointer; font-weight:{{ reportWt }}; color:{{ reportCol }}; border-bottom:{{ reportBd }};">Report</div>
+    </div>
+
+    <!-- ===== PANEL CONTAINER ===== -->
+    <div style="background:#fffdfa; border:1px solid #e8e1d4; border-top:none; border-radius:0 0 14px 14px; padding:6px 20px 22px;">
+
+      <!-- ---------- TODAY ---------- -->
+      <sc-if value="{{ isToday }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex; gap:12px; padding:18px 0 6px; flex-wrap:wrap;">
+          <div style="flex:1; min-width:150px; background:#f9f5ee; border:1px solid #efe6d6; border-radius:10px; padding:14px 16px;">
+            <div style="font-size:12px; color:#9a8f7f; margin-bottom:6px;">Overdue</div>
+            <div style="display:flex; align-items:baseline; gap:8px;"><span style="font-size:26px; font-weight:700; color:#8f2f1f;">{{ overdueCount }}</span><span style="font-size:12px; color:#9a8f7f;">tasks</span></div>
+          </div>
+          <div style="flex:1; min-width:150px; background:#f9f5ee; border:1px solid #efe6d6; border-radius:10px; padding:14px 16px;">
+            <div style="font-size:12px; color:#9a8f7f; margin-bottom:6px;">Due this week</div>
+            <div style="display:flex; align-items:baseline; gap:8px;"><span style="font-size:26px; font-weight:700; color:#7d5c12;">{{ dueWeekCount }}</span><span style="font-size:12px; color:#9a8f7f;">tasks</span></div>
+          </div>
+          <div style="flex:1; min-width:150px; background:#f9f5ee; border:1px solid #efe6d6; border-radius:10px; padding:14px 16px;">
+            <div style="font-size:12px; color:#9a8f7f; margin-bottom:6px;">Hours logged · wk</div>
+            <div style="display:flex; align-items:baseline; gap:8px;"><span style="font-family:'JetBrains Mono',monospace; font-size:26px; font-weight:600;">{{ hoursTotal }}</span><span style="font-size:12px; color:#9a8f7f;">h</span></div>
+          </div>
+        </div>
+
+        <div onClick="{{ toggleTOver }}" style="padding:16px 0 4px; display:flex; align-items:center; gap:10px; cursor:pointer; user-select:none;">
+          <span style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:#8f2f1f; font-weight:600;">Overdue</span>
+          <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#b3a89a;">{{ overdueCount }}</span>
+          <span style="height:1px; flex:1; background:#e8e1d4;"></span>
+          <span style="width:7px; height:7px; border-right:2px solid #b3a89a; border-bottom:2px solid #b3a89a; transform:rotate({{ chevTOver }}); transition:transform .15s; display:inline-block; margin-bottom:3px;"></span>
+        </div>
+        <sc-for list="{{ todayOverdueRows }}" as="t" hint-placeholder-count="3">
+          <div style="margin:8px 0; background:#fffdfa; border:1px solid #e8e1d4; border-left:4px solid {{ t.border }}; border-radius:10px; padding:14px 16px; display:flex; align-items:flex-start; justify-content:space-between; gap:14px; flex-wrap:wrap;">
+            <div style="flex:1; min-width:200px;">
+              <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px; flex-wrap:wrap;"><span style="font-weight:600; font-size:14.5px;">{{ t.task }}</span><span style="font-size:12px; color:#9a8f7f;">{{ t.client }}</span></div>
+              <div style="font-size:12.5px; color:#7c7468; line-height:1.5;">{{ t.note }} <span style="color:{{ t.whoColor }};">— {{ t.whoShort }}</span></div>
+            </div>
+            <div style="text-align:right; flex:none;">
+              <span style="display:inline-block; font-size:11px; font-weight:600; padding:3px 9px; border-radius:20px; background:{{ t.badgeBg }}; color:{{ t.badgeFg }};">{{ t.badgeText }}</span>
+              <div style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#7c7468; margin-top:7px;">{{ t.hoursStr }}h · due {{ t.date }}</div>
+              <sc-if value="{{ t.canPrioritize }}" hint-placeholder-val="{{ false }}"><div onClick="{{ t.priClick }}" title="Add urgency marks to important upcoming work" style="margin-top:7px; cursor:pointer; user-select:none; display:inline-block; font-size:10.5px; font-weight:600; padding:3px 9px; border-radius:20px; background:{{ t.priBg }}; color:{{ t.priFg }}; border:1px solid {{ t.priBorder }};">{{ t.priCta }}</div></sc-if>
+            </div>
+          </div>
+        </sc-for>
+
+        <div onClick="{{ toggleTSoon }}" style="padding:16px 0 4px; display:flex; align-items:center; gap:10px; cursor:pointer; user-select:none;">
+          <span style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:#7d5c12; font-weight:600;">Up next · today &amp; tomorrow</span>
+          <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#b3a89a;">{{ todaySoonCount }}</span>
+          <span style="height:1px; flex:1; background:#e8e1d4;"></span>
+          <span style="width:7px; height:7px; border-right:2px solid #b3a89a; border-bottom:2px solid #b3a89a; transform:rotate({{ chevTSoon }}); transition:transform .15s; display:inline-block; margin-bottom:3px;"></span>
+        </div>
+        <sc-for list="{{ todaySoonRows }}" as="t" hint-placeholder-count="3">
+          <div style="margin:8px 0; background:#fffdfa; border:1px solid #e8e1d4; border-left:4px solid {{ t.border }}; border-radius:10px; padding:14px 16px; display:flex; align-items:flex-start; justify-content:space-between; gap:14px; flex-wrap:wrap;">
+            <div style="flex:1; min-width:200px;">
+              <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px; flex-wrap:wrap;"><span style="font-weight:600; font-size:14.5px;">{{ t.task }}</span><span style="font-size:12px; color:#9a8f7f;">{{ t.client }}</span></div>
+              <div style="font-size:12.5px; color:#7c7468; line-height:1.5;">{{ t.note }} <span style="color:{{ t.whoColor }};">— {{ t.whoShort }}</span></div>
+            </div>
+            <div style="text-align:right; flex:none;">
+              <span style="display:inline-block; font-size:11px; font-weight:600; padding:3px 9px; border-radius:20px; background:{{ t.badgeBg }}; color:{{ t.badgeFg }};">{{ t.badgeText }}</span>
+              <div style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#7c7468; margin-top:7px;">{{ t.hoursStr }}h · due {{ t.date }}</div>
+              <sc-if value="{{ t.canPrioritize }}" hint-placeholder-val="{{ false }}"><div onClick="{{ t.priClick }}" title="Add urgency marks to important upcoming work" style="margin-top:7px; cursor:pointer; user-select:none; display:inline-block; font-size:10.5px; font-weight:600; padding:3px 9px; border-radius:20px; background:{{ t.priBg }}; color:{{ t.priFg }}; border:1px solid {{ t.priBorder }};">{{ t.priCta }}</div></sc-if>
+            </div>
+          </div>
+        </sc-for>
+      </sc-if>
+
+      <!-- ---------- THIS WEEK ---------- -->
+      <sc-if value="{{ isWeek }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex; gap:12px; padding:18px 0 6px; flex-wrap:wrap;">
+          <div style="flex:1; min-width:150px; background:#f9f5ee; border:1px solid #efe6d6; border-radius:10px; padding:14px 16px;">
+            <div style="font-size:12px; color:#9a8f7f; margin-bottom:6px;">Overdue</div>
+            <div style="display:flex; align-items:baseline; gap:8px;"><span style="font-size:26px; font-weight:700; color:#8f2f1f;">{{ overdueCount }}</span><span style="font-size:12px; color:#9a8f7f;">tasks</span></div>
+          </div>
+          <div style="flex:1; min-width:150px; background:#f9f5ee; border:1px solid #efe6d6; border-radius:10px; padding:14px 16px;">
+            <div style="font-size:12px; color:#9a8f7f; margin-bottom:6px;">Due this week</div>
+            <div style="display:flex; align-items:baseline; gap:8px;"><span style="font-size:26px; font-weight:700; color:#7d5c12;">{{ dueWeekCount }}</span><span style="font-size:12px; color:#9a8f7f;">tasks</span></div>
+          </div>
+          <div style="flex:1; min-width:150px; background:#f9f5ee; border:1px solid #efe6d6; border-radius:10px; padding:14px 16px;">
+            <div style="font-size:12px; color:#9a8f7f; margin-bottom:6px;">Hours logged · wk</div>
+            <div style="display:flex; align-items:baseline; gap:8px;"><span style="font-family:'JetBrains Mono',monospace; font-size:26px; font-weight:600;">{{ hoursTotal }}</span><span style="font-size:12px; color:#9a8f7f;">h</span></div>
+          </div>
+        </div>
+
+        <div onClick="{{ toggleWOver }}" style="padding:16px 0 4px; display:flex; align-items:center; gap:10px; cursor:pointer; user-select:none;">
+          <span style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:#8f2f1f; font-weight:600;">Overdue</span>
+          <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#b3a89a;">{{ overdueCount }}</span>
+          <span style="height:1px; flex:1; background:#e8e1d4;"></span>
+          <span style="width:7px; height:7px; border-right:2px solid #b3a89a; border-bottom:2px solid #b3a89a; transform:rotate({{ chevWOver }}); transition:transform .15s; display:inline-block; margin-bottom:3px;"></span>
+        </div>
+        <sc-for list="{{ weekOverdueRows }}" as="t" hint-placeholder-count="4">
+          <div style="margin:8px 0; background:#fffdfa; border:1px solid #e8e1d4; border-left:4px solid {{ t.border }}; border-radius:10px; padding:14px 16px; display:flex; align-items:flex-start; justify-content:space-between; gap:14px; flex-wrap:wrap;">
+            <div style="flex:1; min-width:200px;">
+              <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px; flex-wrap:wrap;"><span style="font-weight:600; font-size:14.5px;">{{ t.task }}</span><span style="font-size:12px; color:#9a8f7f;">{{ t.client }}</span></div>
+              <div style="font-size:12.5px; color:#7c7468; line-height:1.5;">{{ t.note }} <span style="color:{{ t.whoColor }};">— {{ t.whoShort }}</span></div>
+            </div>
+            <div style="text-align:right; flex:none;">
+              <span style="display:inline-block; font-size:11px; font-weight:600; padding:3px 9px; border-radius:20px; background:{{ t.badgeBg }}; color:{{ t.badgeFg }};">{{ t.badgeText }}</span>
+              <div style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#7c7468; margin-top:7px;">{{ t.hoursStr }}h · due {{ t.date }}</div>
+              <sc-if value="{{ t.canPrioritize }}" hint-placeholder-val="{{ false }}"><div onClick="{{ t.priClick }}" title="Add urgency marks to important upcoming work" style="margin-top:7px; cursor:pointer; user-select:none; display:inline-block; font-size:10.5px; font-weight:600; padding:3px 9px; border-radius:20px; background:{{ t.priBg }}; color:{{ t.priFg }}; border:1px solid {{ t.priBorder }};">{{ t.priCta }}</div></sc-if>
+            </div>
+          </div>
+        </sc-for>
+
+        <div onClick="{{ toggleWDue }}" style="padding:16px 0 4px; display:flex; align-items:center; gap:10px; cursor:pointer; user-select:none;">
+          <span style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:#7d5c12; font-weight:600;">Due this week</span>
+          <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#b3a89a;">{{ dueWeekCount }}</span>
+          <span style="height:1px; flex:1; background:#e8e1d4;"></span>
+          <span style="width:7px; height:7px; border-right:2px solid #b3a89a; border-bottom:2px solid #b3a89a; transform:rotate({{ chevWDue }}); transition:transform .15s; display:inline-block; margin-bottom:3px;"></span>
+        </div>
+        <sc-for list="{{ weekDueRows }}" as="t" hint-placeholder-count="6">
+          <div style="margin:8px 0; background:#fffdfa; border:1px solid #e8e1d4; border-left:4px solid {{ t.border }}; border-radius:10px; padding:14px 16px; display:flex; align-items:flex-start; justify-content:space-between; gap:14px; flex-wrap:wrap;">
+            <div style="flex:1; min-width:200px;">
+              <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px; flex-wrap:wrap;"><span style="font-weight:600; font-size:14.5px;">{{ t.task }}</span><span style="font-size:12px; color:#9a8f7f;">{{ t.client }}</span></div>
+              <div style="font-size:12.5px; color:#7c7468; line-height:1.5;">{{ t.note }} <span style="color:{{ t.whoColor }};">— {{ t.whoShort }}</span></div>
+            </div>
+            <div style="text-align:right; flex:none;">
+              <span style="display:inline-block; font-size:11px; font-weight:600; padding:3px 9px; border-radius:20px; background:{{ t.badgeBg }}; color:{{ t.badgeFg }};">{{ t.badgeText }}</span>
+              <div style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#7c7468; margin-top:7px;">{{ t.hoursStr }}h · due {{ t.date }}</div>
+              <sc-if value="{{ t.canPrioritize }}" hint-placeholder-val="{{ false }}"><div onClick="{{ t.priClick }}" title="Add urgency marks to important upcoming work" style="margin-top:7px; cursor:pointer; user-select:none; display:inline-block; font-size:10.5px; font-weight:600; padding:3px 9px; border-radius:20px; background:{{ t.priBg }}; color:{{ t.priFg }}; border:1px solid {{ t.priBorder }};">{{ t.priCta }}</div></sc-if>
+            </div>
+          </div>
+        </sc-for>
+      </sc-if>
+
+      <!-- ---------- WORKLOAD ---------- -->
+      <sc-if value="{{ isWork }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:18px 0 8px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+          <div style="font-size:15px; font-weight:700;">Team workload · this week</div>
+          <div style="font-size:12px; color:#9a8f7f; font-family:'JetBrains Mono',monospace;">{{ teamActive }} assignees active</div>
+        </div>
+        <div style="font-size:12.5px; color:#9a8f7f; margin-bottom:4px;">Active assignments per person, sorted by overdue load. Hours logged shown verbatim from Karbon.</div>
+        <sc-for list="{{ team }}" as="m" hint-placeholder-count="10">
+          <div style="display:flex; align-items:center; gap:14px; padding:14px 0; border-bottom:1px solid #efe6d6; flex-wrap:wrap;">
+            <div style="width:38px; height:38px; border-radius:10px; background:#f0e6d6; color:#8a6a3f; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13px; flex:none;">{{ m.init }}</div>
+            <div style="flex:1; min-width:160px;">
+              <div style="font-weight:600; font-size:14px;">{{ m.name }}</div>
+              <div style="height:6px; background:#efe6d6; border-radius:6px; margin-top:7px; overflow:hidden; max-width:280px;"><div style="height:100%; width:{{ m.barPct }}%; background:{{ m.barColor }}; border-radius:6px;"></div></div>
+            </div>
+            <div style="text-align:right; flex:none; min-width:84px;">
+              <div style="font-family:'JetBrains Mono',monospace; font-size:14px; font-weight:600;">{{ m.count }} <span style="font-size:11px; color:#9a8f7f; font-weight:400;">active</span></div>
+              <div style="font-size:11px; color:#9a8f7f; margin-top:3px;">{{ m.hoursStr }}h logged</div>
+            </div>
+            <div style="flex:none; width:84px; text-align:right;">
+              <sc-if value="{{ m.hasOver }}" hint-placeholder-val="{{ false }}"><span style="font-size:11px; font-weight:600; padding:3px 8px; border-radius:20px; background:#f6e2dc; color:#8f2f1f;">{{ m.overStr }} overdue</span></sc-if>
+            </div>
+          </div>
+        </sc-for>
+      </sc-if>
+
+      <!-- ---------- REPORT (Monday email preview) ---------- -->
+      <sc-if value="{{ isReport }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:16px 0 14px; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+          <div style="font-size:12.5px; color:#7c7468;"><span style="font-weight:700; color:#29251f;">Monday report</span> · auto-emailed to the admin every Monday 8:00 AM MT</div>
+          <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#9a8f7f; background:#f9f5ee; border:1px solid #efe6d6; padding:5px 10px; border-radius:20px;">Next send · Mon 8:00 AM MT</span>
+        </div>
+
+        <!-- email frame -->
+        <div style="border:1px solid #efe6d6; border-radius:12px; overflow:hidden;">
+          <!-- to/subject line -->
+          <div style="padding:12px 22px; background:#f9f5ee; border-bottom:1px solid #efe6d6;">
+            <div style="font-size:13.5px; font-weight:700;">Weekly schedule — {{ overdueCount }} overdue, {{ dueWeekCount }} due this week</div>
+            <div style="font-size:11.5px; color:#9a8f7f; margin-top:3px;">To: Admin (you) · Mon, Jun 19 · 8:00 AM Mountain Time</div>
+          </div>
+          <!-- header band -->
+          <div style="background:#c1632f; padding:22px 24px; color:#fff;">
+            <div style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:0.12em; text-transform:uppercase; opacity:.82;">Week of Jun 19 · Mountain Time</div>
+            <div style="font-size:21px; font-weight:700; margin-top:6px;">All active assignments</div>
+          </div>
+          <!-- 4-up stat row -->
+          <div style="display:flex; flex-wrap:wrap; border-bottom:1px solid #efe6d6;">
+            <div style="flex:1; min-width:120px; padding:14px 20px; border-right:1px solid #efe6d6;"><div style="font-size:24px; font-weight:700; color:#8f2f1f;">{{ overdueCount }}</div><div style="font-size:11px; color:#9a8f7f;">Overdue</div></div>
+            <div style="flex:1; min-width:120px; padding:14px 20px; border-right:1px solid #efe6d6;"><div style="font-size:24px; font-weight:700; color:#7d5c12;">{{ dueWeekCount }}</div><div style="font-size:11px; color:#9a8f7f;">Due this week</div></div>
+            <div style="flex:1; min-width:120px; padding:14px 20px; border-right:1px solid #efe6d6;"><div style="font-size:24px; font-weight:700; color:#3f5636;">{{ newlyCount }}</div><div style="font-size:11px; color:#9a8f7f;">Added this week</div></div>
+            <div style="flex:1; min-width:120px; padding:14px 20px;"><div style="font-size:24px; font-weight:700; color:#6f6657;">{{ nextWeekCount }}</div><div style="font-size:11px; color:#9a8f7f;">Due next week</div></div>
+          </div>
+
+          <div style="padding:18px 24px 4px;">
+            <div style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:#9a8f7f; margin-bottom:8px;">Summary</div>
+            <p style="margin:0; font-size:13.5px; line-height:1.65; color:#4f483e; text-wrap:pretty;">{{ reportSummary }}</p>
+            <sc-if value="{{ hasUnassigned }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-top:10px; font-size:12.5px; color:#a8714a; background:#f9efe6; border:1px solid #ecd8c5; border-radius:8px; padding:8px 12px;">⚠ {{ unassignedLine }}</div>
+            </sc-if>
+          </div>
+          <div style="padding:6px 24px 18px;">
+            <!-- SECTION: Overdue -->
+            <div style="padding:18px 0 8px; display:flex; align-items:center; gap:8px;">
+              <span style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:#8f2f1f; font-weight:700;">Overdue</span>
+              <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#b3a89a;">{{ overdueCount }}</span>
+              <span style="height:1px; flex:1; background:#efe6d6;"></span>
+            </div>
+            <sc-for list="{{ overdue }}" as="t" hint-placeholder-count="3">
+              <div style="border-left:3px solid {{ t.border }}; padding:9px 0 9px 14px; margin-bottom:8px;">
+                <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap;"><span style="font-weight:600; font-size:14px;">{{ t.task }} <span style="color:#9a8f7f; font-weight:500;">· {{ t.client }}</span></span><span style="font-family:'JetBrains Mono',monospace; font-size:12px; font-weight:600; color:{{ t.badgeFg }};">{{ t.badgeText }}</span></div>
+                <div style="font-size:12.5px; margin-top:4px; line-height:1.5;"><span style="color:{{ t.whoReportColor }}; font-weight:{{ t.whoReportWeight }};">{{ t.who }}</span><span style="color:#9a8f7f;"> · {{ t.hoursStr }}h · {{ t.note }}</span></div>
+              </div>
+            </sc-for>
+
+            <!-- SECTION: Due this week -->
+            <div style="padding:18px 0 8px; display:flex; align-items:center; gap:8px;">
+              <span style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:#7d5c12; font-weight:700;">Due this week</span>
+              <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#b3a89a;">{{ dueWeekCount }}</span>
+              <span style="height:1px; flex:1; background:#efe6d6;"></span>
+            </div>
+            <sc-for list="{{ dueWeek }}" as="t" hint-placeholder-count="6">
+              <div style="border-left:3px solid {{ t.border }}; padding:9px 0 9px 14px; margin-bottom:8px;">
+                <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap;"><span style="font-weight:600; font-size:14px;">{{ t.task }} <span style="color:#9a8f7f; font-weight:500;">· {{ t.client }}</span></span><span style="font-family:'JetBrains Mono',monospace; font-size:12px; font-weight:600; color:{{ t.badgeFg }};">{{ t.badgeText }}</span></div>
+                <div style="font-size:12.5px; margin-top:4px; line-height:1.5;"><span style="color:{{ t.whoReportColor }}; font-weight:{{ t.whoReportWeight }};">{{ t.who }}</span><span style="color:#9a8f7f;"> · {{ t.hoursStr }}h · {{ t.note }}</span></div>
+              </div>
+            </sc-for>
+
+            <!-- SECTION: Added this week -->
+            <div style="padding:18px 0 8px; display:flex; align-items:center; gap:8px;">
+              <span style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:#3f5636; font-weight:700;">Newly added this week</span>
+              <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#b3a89a;">{{ newlyCount }}</span>
+              <span style="height:1px; flex:1; background:#efe6d6;"></span>
+            </div>
+            <sc-for list="{{ repNewly }}" as="t" hint-placeholder-count="4">
+              <div style="border-left:3px solid {{ t.border }}; padding:9px 0 9px 14px; margin-bottom:8px;">
+                <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap;"><span style="font-weight:600; font-size:14px;">{{ t.task }} <span style="color:#9a8f7f; font-weight:500;">· {{ t.client }}</span></span><span style="font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#3f5636;">added {{ t.addedDate }}</span></div>
+                <div style="font-size:12.5px; margin-top:4px; line-height:1.5;"><span style="color:{{ t.whoReportColor }}; font-weight:{{ t.whoReportWeight }};">{{ t.who }}</span><span style="color:#9a8f7f;"> · {{ t.hoursStr }}h · {{ t.note }}</span></div>
+              </div>
+            </sc-for>
+
+            <!-- SECTION: Due next week -->
+            <div style="padding:18px 0 8px; display:flex; align-items:center; gap:8px;">
+              <span style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:#6f6657; font-weight:700;">Due next week</span>
+              <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#b3a89a;">{{ nextWeekCount }}</span>
+              <span style="height:1px; flex:1; background:#efe6d6;"></span>
+            </div>
+            <sc-for list="{{ repNextWeek }}" as="t" hint-placeholder-count="4">
+              <div style="border-left:3px solid {{ t.border }}; padding:9px 0 9px 14px; margin-bottom:8px;">
+                <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap;"><span style="font-weight:600; font-size:14px;">{{ t.task }} <span style="color:#9a8f7f; font-weight:500;">· {{ t.client }}</span></span><span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#6f6657;">due {{ t.date }}</span></div>
+                <div style="font-size:12.5px; margin-top:4px; line-height:1.5;"><span style="color:{{ t.whoReportColor }}; font-weight:{{ t.whoReportWeight }};">{{ t.who }}</span><span style="color:#9a8f7f;"> · {{ t.hoursStr }}h · {{ t.note }}</span></div>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="padding:14px 24px; background:#f9f5ee; border-top:1px solid #efe6d6; font-size:11px; color:#9a8f7f; text-align:center; font-family:'JetBrains Mono',monospace;">Auto-generated from Karbon · tasks with no assignee flagged "Undetermined"</div>
+        </div>
+      </sc-if>
+
+    </div>
+
+    <div style="text-align:center; font-size:11px; color:#b3a89a; margin-top:14px; font-family:'JetBrains Mono',monospace;">Read-only · auto-emailed to admin Mondays 8:00 AM MT</div>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{
+  &quot;$preview&quot;: { &quot;width&quot;: 820, &quot;height&quot;: 940 },
+  &quot;markerStyle&quot;: { &quot;editor&quot;: &quot;enum&quot;, &quot;options&quot;: [&quot;exclamations&quot;, &quot;flames&quot;, &quot;none&quot;], &quot;default&quot;: &quot;exclamations&quot;, &quot;tsType&quot;: &quot;'exclamations' | 'flames' | 'none'&quot; },
+  &quot;maxMarkers&quot;: { &quot;editor&quot;: &quot;int&quot;, &quot;default&quot;: 3, &quot;min&quot;: 1, &quot;max&quot;: 5, &quot;tsType&quot;: &quot;number&quot; }
+}">
+class Component extends DCLogic {
+  state = { tab: 'today', conn: 'sample', feedUrl: '', draftUrl: '', showConnect: false, liveTasks: null, lastSync: '', errMsg: '', collapsed: { tOver: false, tSoon: false, wOver: false, wDue: false }, priority: {} };
+
+  keyOf(t) { return t.task + '|' + t.client + '|' + t.date; }
+
+  cyclePriority(key) {
+    const cap = Number(this.props.maxMarkers) || 3;
+    this.setState(s => {
+      const cur = s.priority[key] || 0;
+      const next = cur >= cap ? 0 : cur + 1;
+      return { priority: Object.assign({}, s.priority, { [key]: next }) };
+    });
+  }
+
+  componentDidMount() {
+    const u = (typeof localStorage !== 'undefined') && localStorage.getItem('karbonFeedUrl');
+    if (u) { this.setState({ feedUrl: u, draftUrl: u }); this.loadFeed(u); }
+  }
+
+  getTasks() {
+    return (this.state.liveTasks && this.state.liveTasks.length) ? this.state.liveTasks : this.tasks;
+  }
+
+  initialsOf(name) {
+    return ((name || '').match(/\b\w/g) || []).slice(0, 2).join('').toUpperCase() || '';
+  }
+
+  normalize(data) {
+    const arr = Array.isArray(data) ? data : (data.tasks || data.workItems || data.items || []);
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    return arr.map((it) => {
+      const task = it.task || it.title || it.Title || 'Untitled';
+      const client = it.client || it.clientName || it.ClientName || '';
+      const assignee = it.assignee || it.assigneeName || it.AssigneeName || '';
+      const init = assignee ? (it.initials || this.initialsOf(assignee)) : '';
+      const hoursVal = (it.hours != null) ? it.hours : ((it.loggedHours != null) ? it.loggedHours : 0);
+      const hours = Number(hoursVal) || 0;
+      const rawNote = it.note || it.latestNote || it.LatestNote || '';
+      const dueRaw = it.due || it.dueDate || it.DueDate || it.date;
+      let off = (typeof it.off === 'number') ? it.off : 0;
+      let date = it.dateLabel || '';
+      if (dueRaw) {
+        const d = new Date(dueRaw);
+        if (!isNaN(d.getTime())) {
+          d.setHours(0, 0, 0, 0);
+          off = Math.round((d - today) / 86400000);
+          date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        } else if (typeof dueRaw === 'string') { date = dueRaw; }
+      }
+      const addedRaw = it.added || it.createdDate || it.CreateDateTime || it.WorkCreatedDate;
+      let addedOff = (typeof it.addedOff === 'number') ? it.addedOff : null;
+      let addedDate = it.addedDate || '';
+      if (addedRaw) {
+        const ad = new Date(addedRaw);
+        if (!isNaN(ad.getTime())) {
+          ad.setHours(0, 0, 0, 0);
+          addedOff = Math.round((ad - today) / 86400000);
+          addedDate = ad.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        }
+      }
+      return { task, client, init, name: assignee, off, date, hours, addedOff, addedDate, note: rawNote ? ('"' + String(rawNote).replace(/^"|"$/g, '') + '"') : '' };
+    });
+  }
+
+  loadFeed(url) {
+    const self = this;
+    this.setState({ conn: 'connecting', showConnect: false, errMsg: '' });
+    fetch(url, { headers: { 'Accept': 'application/json' } })
+      .then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status + ' from feed'); return r.json(); })
+      .then((data) => {
+        const tasks = self.normalize(data);
+        if (!tasks.length) throw new Error('Feed returned no tasks.');
+        if (typeof localStorage !== 'undefined') localStorage.setItem('karbonFeedUrl', url);
+        const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        self.setState({ liveTasks: tasks, conn: 'live', feedUrl: url, lastSync: now, errMsg: '' });
+      })
+      .catch((e) => { self.setState({ conn: 'error', errMsg: String((e && e.message) || e) }); });
+  }
+
+  tasks = [
+    { task: '1120S Return',          client: 'Riverside Dental',  init: 'JM', name: 'Jordan M.', off: -7, date: 'Jun 12', hours: 6.5,  note: '"Waiting on K-1 from client; pinged again 6/16."', addedOff: -30, addedDate: 'May 20' },
+    { task: 'Quarterly Bookkeeping', client: 'Larkspur Co',       init: 'AT', name: 'Avery T.',  off: -4, date: 'Jun 15', hours: 12.0, note: '"Reconciled through May, June pending bank feed."', addedOff: -25, addedDate: 'May 25' },
+    { task: '1040 Amendment',        client: 'Hollis & Park',     init: 'SP', name: 'Sam P.',    off: -3, date: 'Jun 16', hours: 2.0,  note: '"Client sent revised docs Friday, reviewing."', addedOff: -2, addedDate: 'Jun 17' },
+    { task: 'Sales Tax Filing',      client: 'Mesa Fitness',      init: 'RD', name: 'Riley D.',  off: -2, date: 'Jun 17', hours: 1.5,  note: '"Portal login reset in progress with state."', addedOff: -14, addedDate: 'Jun 5' },
+    { task: 'AP Cleanup',            client: 'Birchwood Cafe',    init: 'CB', name: 'Casey B.',  off: -1, date: 'Jun 18', hours: 4.5,  note: '"Vendor list deduped, posting batches now."', addedOff: -9, addedDate: 'Jun 10' },
+    { task: 'Sales Tax Filing',      client: 'Harbor Goods',      init: 'RD', name: 'Riley D.',  off: 0,  date: 'Jun 19', hours: 1.0,  note: '"Filing today, final review underway."', addedOff: -3, addedDate: 'Jun 16' },
+    { task: 'Payroll Run',           client: 'Coast Dental',      init: 'CB', name: 'Casey B.',  off: 0,  date: 'Jun 19', hours: 2.5,  note: '"Ready to submit, confirming totals."', addedOff: -20, addedDate: 'May 30' },
+    { task: 'Payroll Run',           client: 'Summit Builders',   init: 'JM', name: 'Jordan M.', off: 1,  date: 'Jun 20', hours: 3.0,  note: '"Hours submitted, awaiting client approval."', addedOff: -1, addedDate: 'Jun 18' },
+    { task: 'Sales Tax Filing',      client: 'Vista Realty',      init: '',   name: '',          off: 1,  date: 'Jun 20', hours: 0.5,  note: '"Pulled report, needs review."', addedOff: 0, addedDate: 'Jun 19' },
+    { task: 'Monthly Close',         client: 'Otto Logistics',    init: 'TQ', name: 'Taylor Q.', off: 2,  date: 'Jun 21', hours: 5.0,  note: '"Bank rec done, accruals pending."', addedOff: -15, addedDate: 'Jun 4' },
+    { task: '1065 Partnership',      client: 'Greenline Farms',   init: 'LN', name: 'Logan N.',  off: 2,  date: 'Jun 21', hours: 7.5,  note: '"K-1 allocations in progress."', addedOff: -12, addedDate: 'Jun 7' },
+    { task: '1120 Return',           client: 'Northgate Supply',  init: 'SP', name: 'Sam P.',    off: 3,  date: 'Jun 22', hours: 9.0,  note: '"Depreciation schedule updated."', addedOff: -40, addedDate: 'May 10' },
+    { task: 'Payroll Run',           client: 'Delta Print',       init: 'DH', name: 'Dana H.',   off: 3,  date: 'Jun 22', hours: 2.0,  note: '"Awaiting timesheets from 2 staff."', addedOff: -2, addedDate: 'Jun 17' },
+    { task: 'Financial Stmt Prep',   client: 'Aspen Group',       init: 'LN', name: 'Logan N.',  off: 4,  date: 'Jun 23', hours: 8.0,  note: '"Draft P&L done, balance sheet next."', addedOff: -18, addedDate: 'Jun 1' },
+    { task: 'Bookkeeping',           client: 'Pinnacle Auto',     init: 'PV', name: 'Parker V.', off: 4,  date: 'Jun 23', hours: 6.0,  note: '"Caught up through June 12."', addedOff: -8, addedDate: 'Jun 11' },
+    { task: 'Year-End Close',        client: 'Cedar Holdings',    init: 'AT', name: 'Avery T.',  off: 4,  date: 'Jun 23', hours: 0.0,  note: '"Not started."', addedOff: -5, addedDate: 'Jun 14' },
+    { task: '1040 Extension',        client: 'Maple & Co',        init: '',   name: '',          off: 7,  date: 'Jun 26', hours: 0.0,  note: '"Engagement letter signed; awaiting assignment."', addedOff: -1, addedDate: 'Jun 18' },
+    { task: 'Quarterly Review',      client: 'Summit Builders',   init: 'MK', name: 'Morgan K.', off: 8,  date: 'Jun 27', hours: 0.0,  note: '"Scheduled, prep not started."', addedOff: -3, addedDate: 'Jun 16' },
+    { task: 'Payroll Run',           client: 'Coast Dental',      init: 'CB', name: 'Casey B.',  off: 9,  date: 'Jun 28', hours: 0.0,  note: '"Recurring run."', addedOff: -20, addedDate: 'May 30' },
+    { task: 'Sales Tax Filing',      client: 'Vista Realty',      init: 'RD', name: 'Riley D.',  off: 11, date: 'Jun 30', hours: 0.0,  note: '"Month-end filing."', addedOff: -4, addedDate: 'Jun 15' }
+  ];
+
+  decorate(t, priLevel) {
+    const d = t.off;
+    // Color by time to due: 2+ days = green, 1-0 days = yellow, overdue = red.
+    let tier, label;
+    if (d < 0) { const o = -d; tier = 'high'; label = o + 'd over'; }
+    else if (d <= 1) { tier = 'med'; label = d === 0 ? 'due today' : 'due tomorrow'; }
+    else { tier = 'low'; label = 'due ' + (t.date || (d + 'd')); }
+    const C = {
+      high: { b: '#c14733', bg: '#f6e2dc', fg: '#8f2f1f' }, // red
+      med:  { b: '#bd8a2c', bg: '#f5ead0', fg: '#7d5c12' }, // yellow
+      low:  { b: '#5f7d4f', bg: '#e6ecdf', fg: '#3f5636' }  // green
+    }[tier];
+    // Markers: auto on overdue work only. Upcoming work has none unless a manager
+    // manually flags it as priority (priLevel > 0, set via tap-to-flag control).
+    const style = this.props.markerStyle || 'exclamations';
+    const cap = Number(this.props.maxMarkers) || 3;
+    const lvl = Number(priLevel) || 0;
+    let n = 0;
+    if (d < 0) { const o = -d; n = o >= 4 ? 3 : 2; }
+    else { n = lvl; }
+    n = Math.min(n, cap);
+    const sym = style === 'flames' ? '🔥' : (style === 'none' ? '' : '❗');
+    const marker = (!sym || n === 0) ? '' : new Array(n + 1).join(sym);
+    const badgeText = marker ? (marker + ' ' + label) : label;
+    // Manual-priority control (upcoming work only)
+    const canPrioritize = d >= 0;
+    const priActive = lvl > 0;
+    const priCta = priActive ? 'Priority · tap to change' : '＋ Flag priority';
+    const priBg = priActive ? '#f6e7dc' : 'transparent';
+    const priFg = priActive ? '#a8714a' : '#b3a89a';
+    const priBorder = priActive ? '#e7c9b0' : '#e8e1d4';
+    // Assignee display + unassigned handling
+    const assigned = !!(t.name && String(t.name).trim());
+    const who = assigned ? t.name : 'Undetermined – no one assigned';
+    const whoShort = assigned ? t.init : 'Unassigned';
+    const whoColor = assigned ? '#b3a89a' : '#a8714a';
+    const whoReportColor = assigned ? '#5f574c' : '#a8714a';
+    const whoReportWeight = assigned ? '500' : '700';
+    return Object.assign({}, t, { tier, label, marker, badgeText, who, whoShort, whoColor, whoReportColor, whoReportWeight, canPrioritize, priActive, priLevel: lvl, priCta, priBg, priFg, priBorder, hoursStr: (Number(t.hours) || 0).toFixed(1), border: C.b, badgeBg: C.bg, badgeFg: C.fg });
+  }
+
+  renderVals() {
+    const src = this.getTasks();
+    const all = src.map(t => {
+      const key = this.keyOf(t);
+      const lvl = this.state.priority[key] || 0;
+      const dec = this.decorate(t, lvl);
+      dec.priClick = () => this.cyclePriority(key);
+      return dec;
+    }).sort((a, b) => a.off - b.off);
+    const overdue = all.filter(t => t.off < 0);
+    const dueWeek = all.filter(t => t.off >= 0 && t.off <= 4)
+      .sort((a, b) => ((b.priLevel > 0) - (a.priLevel > 0)) || (b.priLevel - a.priLevel) || (a.off - b.off));
+    const todaySoon = all.filter(t => t.off >= 0 && t.off <= 1)
+      .sort((a, b) => ((b.priLevel > 0) - (a.priLevel > 0)) || (b.priLevel - a.priLevel) || (a.off - b.off));
+    const repNewly = all.filter(t => typeof t.addedOff === 'number' && t.addedOff >= -6).sort((a, b) => a.off - b.off);
+    const repNextWeek = all.filter(t => t.off >= 7 && t.off <= 11);
+    const hoursTotal = src.reduce((s, t) => s + (Number(t.hours) || 0), 0).toFixed(1);
+
+    // Factual written summary for the Monday report (aggregation only — no predictions)
+    const pl = (n, s, p) => n + ' ' + (n === 1 ? s : (p || s + 's'));
+    const unassignedTasks = all.filter(t => !(t.name && String(t.name).trim()));
+    const unassignedCount = unassignedTasks.length;
+    const mostOver = overdue.length ? overdue[0] : null;
+    let summary = 'The week opens with ' + pl(overdue.length, 'overdue task') + ' and ' + pl(dueWeek.length, 'task') + ' due before the week is out, with ' + hoursTotal + 'h logged so far. ';
+    if (mostOver) { const o = -mostOver.off; summary += 'The furthest behind is ' + mostOver.task + ' for ' + mostOver.client + ', ' + o + ' day' + (o === 1 ? '' : 's') + ' past due. '; }
+    summary += pl(repNewly.length, 'task') + ' ' + (repNewly.length === 1 ? 'was' : 'were') + ' added this week, and ' + pl(repNextWeek.length, 'task') + ' ' + (repNextWeek.length === 1 ? 'is' : 'are') + ' already on the calendar for next week.';
+    const unassignedLine = pl(unassignedCount, 'task') + ' currently ' + (unassignedCount === 1 ? 'has' : 'have') + ' no assignee and ' + (unassignedCount === 1 ? 'needs' : 'need') + ' to be allocated.';
+
+    const map = {};
+    src.forEach(t => {
+      const assigned = !!(t.name && String(t.name).trim());
+      const key = assigned ? (t.init || t.name) : '__UN';
+      const m = map[key] || (map[key] = { init: assigned ? t.init : '–', name: assigned ? t.name : 'Undetermined', count: 0, over: 0, hours: 0 });
+      m.count++; if (t.off < 0) m.over++; m.hours += (Number(t.hours) || 0);
+    });
+    const vals = Object.values(map);
+    const maxC = vals.length ? Math.max.apply(null, vals.map(m => m.count)) : 1;
+    const team = vals
+      .map(m => Object.assign({}, m, {
+        hoursStr: m.hours.toFixed(1),
+        barPct: Math.round(m.count / maxC * 100),
+        barColor: m.over > 0 ? '#c14733' : '#c1632f',
+        hasOver: m.over > 0,
+        overStr: String(m.over)
+      }))
+      .sort((a, b) => (b.over - a.over) || (b.count - a.count));
+    const peopleCount = team.filter(m => m.init !== '–').length;
+
+    const tab = this.state.tab;
+    const mk = (on) => ({ wt: on ? '600' : '500', col: on ? '#29251f' : '#9a8f7f', bd: on ? '2px solid #c1632f' : '2px solid transparent' });
+    const a = mk(tab === 'today'), b = mk(tab === 'week'), c = mk(tab === 'work'), rp = mk(tab === 'report');
+
+    const col = this.state.collapsed;
+    const tog = (k) => () => this.setState(s => ({ collapsed: Object.assign({}, s.collapsed, { [k]: !s.collapsed[k] }) }));
+    const chev = (open) => open ? '45deg' : '-45deg';
+
+    const conn = this.state.conn;
+    const live = conn === 'live';
+    const connText = live ? ('Connected to Karbon · synced ' + this.state.lastSync)
+      : conn === 'connecting' ? 'Connecting to Karbon…'
+      : conn === 'error' ? 'Connection failed — showing sample data'
+      : 'Using sample data — not connected to Karbon';
+    const connDotColor = live ? '#5f7d4f' : conn === 'error' ? '#c14733' : conn === 'connecting' ? '#c79a3a' : '#c79a3a';
+
+    return {
+      isToday: tab === 'today', isWeek: tab === 'week', isWork: tab === 'work', isReport: tab === 'report',
+      tabToday: () => this.setState({ tab: 'today' }),
+      tabWeek: () => this.setState({ tab: 'week' }),
+      tabWork: () => this.setState({ tab: 'work' }),
+      tabReport: () => this.setState({ tab: 'report' }),
+      todayWt: a.wt, todayCol: a.col, todayBd: a.bd,
+      weekWt: b.wt, weekCol: b.col, weekBd: b.bd,
+      workWt: c.wt, workCol: c.col, workBd: c.bd,
+      reportWt: rp.wt, reportCol: rp.col, reportBd: rp.bd,
+      overdue, dueWeek, todaySoon, team, repNewly, repNextWeek,
+      todayOverdueRows: col.tOver ? [] : overdue,
+      todaySoonRows: col.tSoon ? [] : todaySoon,
+      weekOverdueRows: col.wOver ? [] : overdue,
+      weekDueRows: col.wDue ? [] : dueWeek,
+      toggleTOver: tog('tOver'), toggleTSoon: tog('tSoon'), toggleWOver: tog('wOver'), toggleWDue: tog('wDue'),
+      chevTOver: chev(!col.tOver), chevTSoon: chev(!col.tSoon), chevWOver: chev(!col.wOver), chevWDue: chev(!col.wDue),
+      todaySoonCount: todaySoon.length,
+      overdueCount: overdue.length, dueWeekCount: dueWeek.length, newlyCount: repNewly.length, nextWeekCount: repNextWeek.length,
+      reportSummary: summary, unassignedLine, hasUnassigned: unassignedCount > 0,
+      hoursTotal, teamActive: peopleCount + '/10',
+
+      connLive: live,
+      connCanConnect: conn === 'sample' || conn === 'error',
+      connError: conn === 'error' && !!this.state.errMsg,
+      connDotColor, connText,
+      showConnect: this.state.showConnect,
+      draftUrl: this.state.draftUrl,
+      errMsg: this.state.errMsg,
+      headerDotColor: live ? '#5f7d4f' : '#c79a3a',
+      headerText: live ? ('Synced with Karbon · ' + this.state.lastSync) : 'Sample data · not connected',
+      openConnect: () => this.setState({ showConnect: true, draftUrl: this.state.feedUrl, errMsg: '' }),
+      cancelConnect: () => this.setState({ showConnect: false }),
+      onUrlInput: (e) => this.setState({ draftUrl: e.target.value }),
+      submitConnect: () => { const u = (this.state.draftUrl || '').trim(); if (!u) { this.setState({ conn: 'error', errMsg: 'Enter a feed URL.' }); return; } this.loadFeed(u); },
+      refresh: () => this.loadFeed(this.state.feedUrl),
+      disconnect: () => { if (typeof localStorage !== 'undefined') localStorage.removeItem('karbonFeedUrl'); this.setState({ liveTasks: null, conn: 'sample', feedUrl: '', draftUrl: '', lastSync: '', errMsg: '' }); }
+    };
+  }
+}
+</script>
+</body>
+</html>
