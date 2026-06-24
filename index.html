@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Karbon Relay Dashboard</title>
+    <style>
+        body { font-family: sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
+        button { padding: 10px 20px; font-size: 1rem; cursor: pointer; background: #0070f3; color: white; border: none; border-radius: 5px; }
+        button:disabled { opacity: 0.6; cursor: not-allowed; }
+        #status { margin-top: 1rem; font-weight: bold; }
+        table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .error { color: red; }
+        .success { color: green; }
+    </style>
+</head>
+<body>
+    <h1>Karbon Relay</h1>
+    <p>Click the button below to fetch data from your live relay:</p>
+    <button id="connectBtn">Connect to Relay</button>
+    <div id="status">Ready</div>
+    <div id="tableContainer"></div>
+
+    <script>
+        document.getElementById('connectBtn').addEventListener('click', async () => {
+            const btn = document.getElementById('connectBtn');
+            const status = document.getElementById('status');
+            const container = document.getElementById('tableContainer');
+            
+            btn.disabled = true;
+            status.className = '';
+            status.innerText = 'Connecting...';
+            container.innerHTML = '';
+
+            try {
+                // Calls your Vercel API endpoint
+                const response = await fetch('/api/tasks');
+                if (!response.ok) throw new Error(`Server error: ${response.status}`);
+                
+                const data = await response.json();
+                
+                status.className = 'success';
+                status.innerText = `Success! Found ${data.length || 0} tasks.`;
+                
+                if (data && data.length > 0) {
+                    let table = `<table><thead><tr><th>ID</th><th>Title</th><th>Status</th></tr></thead><tbody>`;
+                    data.forEach(item => {
+                        table += `<tr><td>${item.id || 'N/A'}</td><td>${item.title || item.name || 'Untitled'}</td><td>${item.status || 'Unknown'}</td></tr>`;
+                    });
+                    table += `</tbody></table>`;
+                    container.innerHTML = table;
+                } else {
+                    container.innerHTML = '<p>No tasks found.</p>';
+                }
+            } catch (error) {
+                status.className = 'error';
+                status.innerText = `Error: ${error.message}`;
+            } finally {
+                btn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>
