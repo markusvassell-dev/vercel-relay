@@ -14,7 +14,7 @@ export default async function handler(req, res) {
 
     try {
         // IMPORTANT: Replace this URL with your actual Karbon endpoint if different
-        const karbonUrl = 'https://api.karbon.com/v1/tasks'; 
+        const karbonUrl = 'https://api.karbonhq.com/v3/WorkItems'; 
 
         const response = await fetch(karbonUrl, {
             headers: {

@@ -11,7 +11,7 @@ export default async function handler(req, res) {
     }
 
     try {
-        const karbonUrl = 'https://api.karbon.com/v1/tasks'; 
+        const karbonUrl = 'https://api.karbonhq.com/v3/WorkItems'; 
         const karbonResponse = await fetch(karbonUrl, {
             headers: {
                 'Authorization': `Bearer ${process.env.KARBON_BEARER_TOKEN}`,
