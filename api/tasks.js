@@ -51,7 +51,7 @@ export default async function handler(req, res) {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${bearerToken}`,
-        'AccessKey': accessKey,
+        'X-Access-Key': accessKey,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(requestPayload),
