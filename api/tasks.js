@@ -15,11 +15,23 @@ export default async function handler(req, res) {
   const bearerToken = (process.env.KARBON_BEARER_TOKEN || '').trim();
   const accessKey = (process.env.KARBON_ACCESS_KEY || '').trim();
 
+  // Non-secret fingerprint so you can confirm the env vars actually populated
+  // WITHOUT leaking the values. A length of 0 here = the var never reached this
+  // deployment (add it in Vercel, then REDEPLOY — env vars only bind to builds
+  // created after they're added). Whitespace-only paste is the #1 silent 401.
+  const fingerprint = {
+    bearer_len: bearerToken.length,
+    bearer_preview: bearerToken ? bearerToken.slice(0, 4) + '…' + bearerToken.slice(-4) : '(empty)',
+    accessKey_len: accessKey.length,
+    accessKey_preview: accessKey ? accessKey.slice(0, 4) + '…' + accessKey.slice(-4) : '(empty)',
+  };
+
   if (!bearerToken || !accessKey) {
     return res.status(500).json({
-      error: 'Karbon credentials missing',
+      error: 'Karbon credentials missing at runtime',
       KARBON_BEARER_TOKEN_present: Boolean(bearerToken),
       KARBON_ACCESS_KEY_present: Boolean(accessKey),
+      fingerprint,
     });
   }
 
@@ -38,42 +50,70 @@ export default async function handler(req, res) {
   };
 
   // --- Filters that enforce "active whole works only" ---
-  // Any status containing one of these words means the work is NOT active.
   const DEAD_STATUS = /complete|cancel|archiv|done|closed|deleted/i;
-  // Row "types" that are PART of a work, not the whole work itself.
   const SECTION_LIKE = /section|checklist|subtask|step|task list/i;
 
-  try {
-    // Uses the exact internal endpoint with your Workspace ID
-    const karbonUrl = 'https://app.karbonhq.com/todo/api/grt99qBcBs2/workViewListItems';
+  // Keep the URL EXACTLY as provided (Workspace ID grt99qBcBs2).
+  const karbonUrl = 'https://app.karbonhq.com/todo/api/grt99qBcBs2/workViewListItems';
 
+  try {
     const response = await fetch(karbonUrl, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${bearerToken}`,
-        'X-Access-Key': accessKey,
+        // Verified exactly as requested:
+        'Authorization': 'Bearer ' + process.env.KARBON_BEARER_TOKEN,
+        'X-Access-Key': process.env.KARBON_ACCESS_KEY,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(requestPayload),
     });
 
+    // Read the raw body ONCE as text so we can surface it verbatim on error
+    // or parse it on success.
     const bodyText = await response.text();
 
+    // Collect Karbon's response headers — for a 401, 'www-authenticate' usually
+    // spells out the reason (e.g. invalid_token, expired, missing AccessKey).
+    const karbonHeaders = {};
+    response.headers.forEach((v, k) => { karbonHeaders[k] = v; });
+
     if (!response.ok) {
-      console.error(`Karbon API error (${response.status}): ${bodyText}`);
+      console.error(`Karbon API error (${response.status} ${response.statusText}): ${bodyText}`);
+      // Surface EVERYTHING Karbon told us, raw, into the browser Response tab.
       return res.status(response.status).json({
         error: 'Karbon API rejected the request',
         status: response.status,
-        karbonResponse: bodyText,
+        statusText: response.statusText,
+        url: karbonUrl,
+        karbonResponse: bodyText,            // <-- the exact message Karbon sent
+        wwwAuthenticate: karbonHeaders['www-authenticate'] || null,
+        karbonHeaders,
+        sentHeaders: {
+          Authorization: 'Bearer <token len ' + bearerToken.length + '>',
+          'X-Access-Key': '<key len ' + accessKey.length + '>',
+        },
+        fingerprint,
       });
     }
 
-    const parsed = JSON.parse(bodyText);
+    // Success — parse and reshape.
+    let parsed;
+    try {
+      parsed = JSON.parse(bodyText);
+    } catch (e) {
+      // 200 but not JSON (e.g. an HTML login page returned by an internal route)
+      return res.status(502).json({
+        error: 'Karbon returned a non-JSON body (often an HTML login page — this internal endpoint may require a browser session, not a token)',
+        url: karbonUrl,
+        karbonResponse: bodyText.slice(0, 2000),
+        fingerprint,
+      });
+    }
+
     const rawRows = Array.isArray(parsed)
       ? parsed
       : (parsed.value || parsed.Items || parsed.WorkItems || parsed.data || parsed.rows || parsed.items || []);
 
-    // Reshape + filter into the clean { tasks:[...] } the dashboard expects.
     const seen = new Set();
     const tasks = [];
 
@@ -107,7 +147,14 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ count: tasks.length, tasks });
   } catch (error) {
-    console.error('Relay Error:', error.message);
-    return res.status(500).json({ error: 'Relay crashed', detail: error.message });
+    // Network / DNS / TLS / unexpected crash — surface the raw message + stack.
+    console.error('Relay Error:', error && error.stack ? error.stack : error);
+    return res.status(500).json({
+      error: 'Relay crashed before/while contacting Karbon',
+      detail: String(error && error.message ? error.message : error),
+      name: error && error.name ? error.name : null,
+      url: karbonUrl,
+      fingerprint,
+    });
   }
 }
