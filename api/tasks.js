@@ -1,24 +1,41 @@
+/**
+ * Karbon Scheduling relay — /api/tasks
+ * ------------------------------------------------------------------
+ * Uses Karbon's PUBLIC developer API (api.karbonhq.com/v3), which is what a
+ * KARBON_BEARER_TOKEN + KARBON_ACCESS_KEY are issued for.
+ *
+ * IMPORTANT — why the old URL 401'd:
+ *   https://app.karbonhq.com/todo/api/.../workViewListItems  is Karbon's
+ *   INTERNAL web-app endpoint. It authenticates with your browser's login
+ *   SESSION COOKIES, not an API token, so a Bearer token can never authorize
+ *   there — it always returns 401. The public /v3 API below is the correct,
+ *   supported home for token auth.
+ *
+ * Vercel → Settings → Environment Variables (then REDEPLOY):
+ *   KARBON_BEARER_TOKEN   Karbon Bearer access token
+ *   KARBON_ACCESS_KEY     Karbon AccessKey (Settings → Connected Apps)
+ *   ALLOWED_ORIGIN        your dashboard URL (optional; defaults to *)
+ */
+
+const KARBON_BASE = 'https://api.karbonhq.com/v3';
+
 export default async function handler(req, res) {
   const allowedOrigin = process.env.ALLOWED_ORIGIN || '*';
   res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-
-  if (req.method !== 'POST') {
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  // Accept BOTH GET and POST so the dashboard works either way.
+  if (req.method !== 'GET' && req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   const bearerToken = (process.env.KARBON_BEARER_TOKEN || '').trim();
   const accessKey = (process.env.KARBON_ACCESS_KEY || '').trim();
 
-  // Non-secret fingerprint so you can confirm the env vars actually populated
-  // WITHOUT leaking the values. A length of 0 here = the var never reached this
-  // deployment (add it in Vercel, then REDEPLOY — env vars only bind to builds
-  // created after they're added). Whitespace-only paste is the #1 silent 401.
+  // Non-secret fingerprint — confirms the env vars populated without leaking
+  // them. A length of 0 = the var never reached this deployment.
   const fingerprint = {
     bearer_len: bearerToken.length,
     bearer_preview: bearerToken ? bearerToken.slice(0, 4) + '…' + bearerToken.slice(-4) : '(empty)',
@@ -35,125 +52,110 @@ export default async function handler(req, res) {
     });
   }
 
-  // THE EXACT REQUEST KARBON'S OWN "WORK" TAB USES
-  // This asks for the active Work view, 100 per page.
-  const requestPayload = {
-    listSortBy: "name",
-    sortDescending: false,
-    showCompletedColumns: false,
-    modelPath: "data",
-    perPage: 100,
-    status: [],
-    impliedStatus: [],
-    take: 100,
-    skip: 0,
-  };
-
   // --- Filters that enforce "active whole works only" ---
   const DEAD_STATUS = /complete|cancel|archiv|done|closed|deleted/i;
   const SECTION_LIKE = /section|checklist|subtask|step|task list/i;
 
-  // Keep the URL EXACTLY as provided (Workspace ID grt99qBcBs2).
-  const karbonUrl = 'https://app.karbonhq.com/todo/api/grt99qBcBs2/workViewListItems';
+  const headers = {
+    'Authorization': 'Bearer ' + bearerToken,
+    'AccessKey': accessKey,
+    'Accept': 'application/json',
+  };
+
+  // Active work only, 100 per page; follow @odata.nextLink for the rest.
+  let url = KARBON_BASE + "/WorkItems?$filter=" +
+    encodeURIComponent("PrimaryStatus ne 'Completed' and PrimaryStatus ne 'Cancelled'") +
+    "&$top=100";
 
   try {
-    const response = await fetch(karbonUrl, {
-      method: 'POST',
-      headers: {
-        // Verified exactly as requested:
-        'Authorization': 'Bearer ' + process.env.KARBON_BEARER_TOKEN,
-        'X-Access-Key': process.env.KARBON_ACCESS_KEY,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestPayload),
-    });
+    const raw = [];
 
-    // Read the raw body ONCE as text so we can surface it verbatim on error
-    // or parse it on success.
-    const bodyText = await response.text();
+    for (let page = 0; page < 25 && url; page++) {
+      const response = await fetch(url, { headers });
+      const bodyText = await response.text();
 
-    // Collect Karbon's response headers — for a 401, 'www-authenticate' usually
-    // spells out the reason (e.g. invalid_token, expired, missing AccessKey).
-    const karbonHeaders = {};
-    response.headers.forEach((v, k) => { karbonHeaders[k] = v; });
+      // Rate limit (120/min) — wait the advised time, then retry the same page.
+      if (response.status === 429) {
+        const wait = Number(response.headers.get('Retry-After') || 2) * 1000;
+        await new Promise((r) => setTimeout(r, wait));
+        continue;
+      }
 
-    if (!response.ok) {
-      console.error(`Karbon API error (${response.status} ${response.statusText}): ${bodyText}`);
-      // Surface EVERYTHING Karbon told us, raw, into the browser Response tab.
-      return res.status(response.status).json({
-        error: 'Karbon API rejected the request',
-        status: response.status,
-        statusText: response.statusText,
-        url: karbonUrl,
-        karbonResponse: bodyText,            // <-- the exact message Karbon sent
-        wwwAuthenticate: karbonHeaders['www-authenticate'] || null,
-        karbonHeaders,
-        sentHeaders: {
-          Authorization: 'Bearer <token len ' + bearerToken.length + '>',
-          'X-Access-Key': '<key len ' + accessKey.length + '>',
-        },
-        fingerprint,
-      });
+      if (!response.ok) {
+        // Surface EVERYTHING Karbon told us, raw, into the browser Response tab.
+        const karbonHeaders = {};
+        response.headers.forEach((v, k) => { karbonHeaders[k] = v; });
+        console.error(`Karbon API error (${response.status} ${response.statusText}): ${bodyText}`);
+        return res.status(response.status).json({
+          error: 'Karbon API rejected the request',
+          status: response.status,
+          statusText: response.statusText,
+          url,
+          karbonResponse: bodyText,                       // exact message Karbon sent
+          wwwAuthenticate: karbonHeaders['www-authenticate'] || null,
+          karbonHeaders,
+          sentHeaders: {
+            Authorization: 'Bearer <token len ' + bearerToken.length + '>',
+            AccessKey: '<key len ' + accessKey.length + '>',
+          },
+          fingerprint,
+        });
+      }
+
+      let json;
+      try { json = JSON.parse(bodyText); }
+      catch (e) {
+        return res.status(502).json({
+          error: 'Karbon returned a non-JSON body',
+          url,
+          karbonResponse: bodyText.slice(0, 2000),
+          fingerprint,
+        });
+      }
+
+      const items = json.value || json.WorkItems || json.Items || [];
+      raw.push(...items);
+      url = json['@odata.nextLink'] || null;
     }
 
-    // Success — parse and reshape.
-    let parsed;
-    try {
-      parsed = JSON.parse(bodyText);
-    } catch (e) {
-      // 200 but not JSON (e.g. an HTML login page returned by an internal route)
-      return res.status(502).json({
-        error: 'Karbon returned a non-JSON body (often an HTML login page — this internal endpoint may require a browser session, not a token)',
-        url: karbonUrl,
-        karbonResponse: bodyText.slice(0, 2000),
-        fingerprint,
-      });
-    }
-
-    const rawRows = Array.isArray(parsed)
-      ? parsed
-      : (parsed.value || parsed.Items || parsed.WorkItems || parsed.data || parsed.rows || parsed.items || []);
-
+    // Reshape + filter into the clean { tasks:[...] } the dashboard expects.
     const seen = new Set();
     const tasks = [];
 
-    for (const it of rawRows) {
+    for (const it of raw) {
       // 1) WHOLE WORKS ONLY — skip section / checklist / subtask rows.
-      const entity = String(it.entityType ?? it.type ?? it.kind ?? it.rowType ?? 'work').toLowerCase();
+      const entity = String(it.EntityType ?? it.entityType ?? it.Type ?? 'work').toLowerCase();
       if (SECTION_LIKE.test(entity)) continue;
 
       // 2) ACTIVE ONLY — skip completed / canceled / archived work.
-      const status = String(
-        it.status ?? it.Status ?? it.primaryStatus ?? it.PrimaryStatus ?? it.impliedStatus ?? ''
-      ).trim();
+      const status = String(it.PrimaryStatus ?? it.SecondaryStatus ?? it.status ?? '').trim();
       if (DEAD_STATUS.test(status)) continue;
 
       // 3) De-dupe so each whole work appears once.
-      const id = it.id ?? it.Id ?? it.workItemId ?? it.permaKey ?? it.key ?? (it.title ?? it.Title ?? it.name ?? '');
+      const id = it.WorkItemKey ?? it.Key ?? it.Id ?? it.id ?? (it.Title ?? it.WorkType ?? '');
       if (id && seen.has(id)) continue;
       if (id) seen.add(id);
 
       tasks.push({
         id,
-        task: it.title ?? it.task ?? it.Title ?? it.name ?? 'Untitled',
-        client: it.client ?? it.clientName ?? it.ClientName ?? it.primaryClientName ?? '',
-        assignee: String(it.assignee ?? it.assigneeName ?? it.AssigneeName ?? it.assignedTo ?? '').trim(),
-        due: it.dueDate ?? it.due ?? it.DueDate ?? it.deadline ?? it.DeadlineDate ?? null,
-        added: it.added ?? it.createdDate ?? it.WorkCreatedDate ?? it.createdAt ?? null,
-        hours: Number(it.loggedHours ?? it.hours ?? it.LoggedHours ?? it.actualHours ?? 0) || 0,
+        task: it.Title || it.WorkType || it.WorkTemplateTitle || 'Untitled',
+        client: it.ClientName || it.PrimaryClientName || '',
+        assignee: String(it.AssigneeName || it.AssignedToName || '').trim(),
+        due: it.DueDate || it.DeadlineDate || null,
+        added: it.WorkCreatedDate || it.CreatedDate || null,
+        hours: Number(it.ActualHours || it.LoggedHours || 0) || 0,
         status,
       });
     }
 
+    res.setHeader('Cache-Control', 'no-store');
     return res.status(200).json({ count: tasks.length, tasks });
   } catch (error) {
-    // Network / DNS / TLS / unexpected crash — surface the raw message + stack.
     console.error('Relay Error:', error && error.stack ? error.stack : error);
     return res.status(500).json({
       error: 'Relay crashed before/while contacting Karbon',
       detail: String(error && error.message ? error.message : error),
       name: error && error.name ? error.name : null,
-      url: karbonUrl,
       fingerprint,
     });
   }
