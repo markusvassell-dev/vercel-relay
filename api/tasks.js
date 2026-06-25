@@ -57,8 +57,9 @@ export default async function handler(req, res) {
       });
     }
 
-    const data = JSON.parse(bodyText);
-    return res.status(200).json(data);
+    const parsed = JSON.parse(bodyText);
+    const tasks = Array.isArray(parsed) ? parsed : (parsed.value || parsed.Items || parsed.WorkItems || []);
+    return res.status(200).json({ count: tasks.length, tasks });
   } catch (error) {
     console.error('Relay Error:', error.message);
     return res.status(500).json({ error: 'Relay crashed', detail: error.message });
