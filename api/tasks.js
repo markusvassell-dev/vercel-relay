@@ -57,10 +57,10 @@ export default async function handler(req, res) {
   const SECTION_LIKE = /section|checklist|subtask|step|task list/i;
 
   const headers = {
-    'Authorization': 'Bearer ' + bearerToken,
-    'AccessKey': accessKey,
-    'Accept': 'application/json',
-  };
+  'Authorization': 'Bearer ' + bearerToken,
+  'X-Access-Key': accessKey,
+  'Accept': 'application/json',
+};
 
   // Active work only, 100 per page; follow @odata.nextLink for the rest.
   let url = KARBON_BASE + "/WorkItems?$filter=" +
