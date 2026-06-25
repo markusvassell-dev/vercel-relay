@@ -166,6 +166,18 @@ const TASKS_URL  = '/api/tasks';     // GET — returns your work items
 const WEEKLY_URL = '/api/weekly';    // GET — triggers the Monday email
 const CRON_SECRET = 'longlivethequeenofengland12345678910!!!'; // <-- your CRON_SECRET
 
+// Workload tab roster — only these colleagues are charted, in this order.
+// Matched case-insensitively against each task's assignee name.
+const COLLEAGUES = [
+  'Kayla Dawe',
+  'Daryn Gordon',
+  'Angel Palomo',
+  'Jareht Almaraz',
+  'Nathalie Novak',
+  'Carey Pearce',
+  'Markus Vassell',
+];
+
 /* ============================================================
    STATE
    ============================================================ */
@@ -219,13 +231,18 @@ function normalize(data){
       if (!isNaN(a)){ a.setHours(0,0,0,0); addedOff = Math.round((a - today)/86400000); addedLabel = a.toLocaleDateString('en-US',{month:'short',day:'numeric'}); }
     }
     return { id, title, status, client, assignee, loggedHours, off, dateLabel, addedOff, addedLabel };
-  });
+  })
+  // ACTIVE ONLY — never render completed / canceled / archived work, even if the
+  // backend lets one through. The Workload tab additionally limits the people
+  // shown to the COLLEAGUES roster (no clients, no former employees).
+  .filter(t => !/complete|cancel|archiv|done|closed|deleted/i.test(t.status));
 }
 
 async function loadTasks(){
   setConn('connecting');
   try{
-    const r = await fetch(TASKS_URL, { headers:{ 'Accept':'application/json' }, cache:'no-store' });
+    // The relay is POST-only (it forwards the Karbon "Work" view payload).
+    const r = await fetch(TASKS_URL, { method:'POST', headers:{ 'Content-Type':'application/json', 'Accept':'application/json' }, body:'{}', cache:'no-store' });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
     TASKS = normalize(data);
@@ -385,21 +402,24 @@ function render(){
 
 /* WORKLOAD — group by assignee, % bar by relative load */
 function workloadHTML(v){
-  const map = {};
-  v.all.forEach(t => {
-    const key = t.assignee || '__UN';
-    const m = map[key] || (map[key] = { name: t.assignee || 'Undetermined', init: t.assignee ? initials(t.assignee) : '–', count:0, over:0, hours:0 });
-    m.count++; if (t.off != null && t.off < 0) m.over++; m.hours += t.loggedHours;
-  });
-  const people = Object.values(map);
-  const maxC = people.length ? Math.max(...people.map(m=>m.count)) : 1;
-  people.sort((a,b)=> (b.over - a.over) || (b.count - a.count));
-  const active = people.filter(m => m.init !== '–').length;
+  const norm = s => (s || '').trim().toLowerCase();
+  // Build one bucket per colleague on the roster (in roster order), then fill
+  // from this week's tasks. Colleagues with no active work still show (count 0).
+  const buckets = COLLEAGUES.map(name => ({ name, init: initials(name), count:0, over:0, hours:0 }));
+  const byName = {};
+  buckets.forEach(b => { byName[norm(b.name)] = b; });
 
-  if (!people.length){
-    return `<div class="empty"><div class="empty-title" style="margin-top:30px">No assignments to chart</div><div class="empty-sub">Workload appears once tasks are assigned.</div></div>`;
-  }
-  const rows = people.map(m => `<div class="wl-row">
+  v.all.forEach(t => {
+    const b = byName[norm(t.assignee)];
+    if (!b) return;                       // skip anyone not on the roster
+    b.count++; if (t.off != null && t.off < 0) b.over++; b.hours += t.loggedHours;
+  });
+
+  const maxC = Math.max(1, ...buckets.map(m => m.count));
+  buckets.sort((a,b)=> (b.over - a.over) || (b.count - a.count));
+  const withWork = buckets.filter(m => m.count > 0).length;
+
+  const rows = buckets.map(m => `<div class="wl-row">
       <div class="wl-ava">${esc(m.init)}</div>
       <div class="wl-main">
         <div class="wl-name">${esc(m.name)}</div>
@@ -408,8 +428,8 @@ function workloadHTML(v){
       <div class="wl-stat"><div class="wl-count mono">${m.count} <span style="font-size:11px;color:#9a8f7f;font-weight:400">active</span></div><div class="wl-hours">${m.hours.toFixed(1)}h logged</div></div>
       <div class="wl-over">${m.over>0?`<span class="badge" style="background:#f6e2dc;color:#8f2f1f">${m.over} overdue</span>`:''}</div>
     </div>`).join('');
-  return `<div class="wl-head"><div class="wl-title">Team workload · this week</div><div class="wl-sub mono">${active} assignees active</div></div>
-    <div class="wl-sub" style="margin-bottom:4px">Active assignments per person, sorted by overdue load. Hours logged shown verbatim from Karbon.</div>${rows}`;
+  return `<div class="wl-head"><div class="wl-title">Team workload · this week</div><div class="wl-sub mono">${withWork} of ${COLLEAGUES.length} with active work</div></div>
+    <div class="wl-sub" style="margin-bottom:4px">Active assignments per colleague, sorted by overdue load. Hours logged shown verbatim from Karbon.</div>${rows}`;
 }
 
 /* REPORT — Monday email preview + Send button */
