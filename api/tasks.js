@@ -32,7 +32,7 @@ export default async function handler(req, res) {
   }
 
   const bearerToken = (process.env.KARBON_BEARER_TOKEN || '').trim();
-  const accessKey = (process.env.KARBON_ACCESS_KEY || '').trim();
+  const X-accessKey = (process.env.KARBON_ACCESS_KEY || '').trim();
 
   // Non-secret fingerprint — confirms the env vars populated without leaking
   // them. A length of 0 = the var never reached this deployment.
