@@ -35,7 +35,7 @@ const SECTION_LIKE = /section|checklist|subtask|step|task list/i;
  * Returns a clean array of task objects. Throws on a non-OK Karbon response
  * with a .karbon property carrying the status + body for the caller to surface.
  */
-export async function fetchKarbonTasks() {
+export async function fetchKarbonTasks(opts = {}) {
   const bearerToken = (process.env.KARBON_BEARER_TOKEN || '').trim();
   const accessKey = (process.env.KARBON_ACCESS_KEY || '').trim();
 
@@ -119,10 +119,12 @@ export async function fetchKarbonTasks() {
   const plainUrl = KARBON_BASE + '/WorkItems?$top=100';
 
   let raw;
+  let usedFallback = false;
   try {
     raw = await collect(filteredUrl);
   } catch (e) {
     if (e.code === 'BAD_REQUEST') {
+      usedFallback = true;
       raw = await collect(plainUrl);
     } else {
       throw e;
@@ -156,6 +158,19 @@ export async function fetchKarbonTasks() {
     });
   }
 
+  if (opts.debug) {
+    return {
+      tasks,
+      _debug: {
+        rawCount: raw.length,
+        filteredCount: tasks.length,
+        firstRawKeys: raw[0] ? Object.keys(raw[0]) : [],
+        firstRawItem: raw[0] || null,
+        usedFallback: usedFallback,
+      },
+    };
+  }
+
   return tasks;
 }
 
@@ -182,9 +197,14 @@ export default async function handler(req, res) {
   };
 
   try {
-    const tasks = await fetchKarbonTasks();
+    const debug = /(?:[?&])debug=1\b/.test(req.url || '') ||
+      (req.query && (req.query.debug === '1' || req.query.debug === 'true'));
+    const result = await fetchKarbonTasks({ debug });
     res.setHeader('Cache-Control', 'no-store');
-    return res.status(200).json({ count: tasks.length, tasks });
+    if (debug) {
+      return res.status(200).json({ count: result.tasks.length, ...result._debug });
+    }
+    return res.status(200).json({ count: result.length, tasks: result });
   } catch (error) {
     if (error.code === 'NO_CREDS') {
       return res.status(500).json({
