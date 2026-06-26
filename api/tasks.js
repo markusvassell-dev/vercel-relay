@@ -59,7 +59,10 @@ export async function fetchKarbonTasks(opts = {}) {
   async function collect(initialUrl) {
     let url = initialUrl;
     const items = [];
-    for (let page = 0; page < 25 && url; page++) {
+    // Page through EVERYTHING (up to a generous safety ceiling). The real stop
+    // condition is the absence of an @odata.nextLink; the page cap and time
+    // budget only protect against a runaway loop / Vercel's function limit.
+    for (let page = 0; page < 200 && url; page++) {
       if (Date.now() - start > TIME_BUDGET_MS) break;
 
       const controller = new AbortController();
@@ -110,33 +113,23 @@ export async function fetchKarbonTasks(opts = {}) {
     return items;
   }
 
-  // Karbon's WorkItems endpoint is strict about query syntax (per the v3
-  // OpenAPI spec):
-  //   $filter  — allowed operators: eq, ge, le, and  (NO "ne", NO "or")
-  //              allowed properties: ClientKey, AssigneeEmailAddress,
-  //              PrimaryStatus, WorkStatus, StartDate
-  //   $orderby — allowed property: StartDate only
-  // The old filter used "PrimaryStatus ne 'Completed'", which Karbon 400s.
-  // That forced the unfiltered fallback, which returned the OLDEST 100 work
-  // items (all long-since Completed) — every one of which the reshape loop
-  // below then dropped, leaving zero tasks.
+  // Collect ALL work, not a recent slice. We page through the entire WorkItems
+  // collection and drop completed/cancelled items in the reshape loop below.
   //
-  // The fix: pull only recent work via a LEGAL "StartDate ge" window, sorted
-  // newest-first, then drop completed/cancelled work in the reshape loop.
-  // OData DateTimeOffset literals are unquoted ISO-8601.
-  const sinceDate = new Date();
-  sinceDate.setMonth(sinceDate.getMonth() - 24);   // ~2 years of active work
-  const since = sinceDate.toISOString().slice(0, 10) + 'T00:00:00Z';
-
+  // Why no server-side status filter: Karbon's WorkItems $filter only allows
+  // the operators eq, ge, le, and (NO "ne", NO "or") on the properties
+  // ClientKey, AssigneeEmailAddress, PrimaryStatus, WorkStatus, StartDate.
+  // "PrimaryStatus ne 'Completed'" is therefore illegal (it 400s), and you
+  // can't OR together the several active statuses in one query. So we pull the
+  // whole list (newest-first) and filter client-side — reliable and complete.
+  // A StartDate window is deliberately NOT applied: plenty of overdue work
+  // started years ago and must still be collected.
+  //   $orderby — allowed property: StartDate only.
   const filteredUrl = KARBON_BASE + '/WorkItems' +
-    '?$filter=' + encodeURIComponent('StartDate ge ' + since) +
-    '&$orderby=' + encodeURIComponent('StartDate desc') +
-    '&$top=100';
-  // Fallback keeps the newest-first ordering so we never again page through the
-  // oldest (all-completed) items first.
-  const plainUrl = KARBON_BASE + '/WorkItems' +
     '?$orderby=' + encodeURIComponent('StartDate desc') +
     '&$top=100';
+  // Plain fallback in case Karbon ever rejects the $orderby with a 400.
+  const plainUrl = KARBON_BASE + '/WorkItems?$top=100';
 
   let raw;
   let usedFallback = false;
@@ -181,14 +174,32 @@ export async function fetchKarbonTasks(opts = {}) {
   }
 
   if (opts.debug) {
+    // Date audit: for every RAW item (active or not), surface the date fields
+    // Karbon's work-overview columns could be keyed off, plus its statuses, so
+    // we can see (a) whether we fetched everything and (b) which field marks an
+    // item "due today" / "due this week" the way Karbon's columns do.
+    const audit = raw.map(it => ({
+      Title: it.Title || it.WorkType || it.WorkTemplateTile || '(untitled)',
+      PrimaryStatus: it.PrimaryStatus ?? null,
+      WorkStatus: it.WorkStatus ?? null,
+      StartDate: it.StartDate ?? null,
+      DueDate: it.DueDate ?? null,
+      DeadlineDate: it.DeadlineDate ?? null,
+      ToDoPeriod: it.ToDoPeriod ?? null,
+    }));
+    const isDead = s => DEAD_STATUS.test(String(s || ''));
+    const activeAudit = audit.filter(a => !isDead(a.PrimaryStatus));
     return {
       tasks,
       _debug: {
-        rawCount: raw.length,
-        filteredCount: tasks.length,
-        firstRawKeys: raw[0] ? Object.keys(raw[0]) : [],
-        firstRawItem: raw[0] || null,
+        rawCount: raw.length,                 // how many work items we actually fetched
+        activeCount: activeAudit.length,      // …of which are not completed/cancelled
+        filteredCount: tasks.length,          // …that became dashboard tasks
         usedFallback: usedFallback,
+        firstRawKeys: raw[0] ? Object.keys(raw[0]) : [],
+        // Up to 120 active items with their candidate date fields, so we can see
+        // exactly which date Karbon uses for Due Today / Due This Week.
+        activeDateAudit: activeAudit.slice(0, 120),
       },
     };
   }
