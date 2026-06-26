@@ -23,7 +23,7 @@ const KARBON_BASE = 'https://api.karbonhq.com/v3';
 
 // Stop paginating once we have spent this long, so we always return cleanly
 // before Vercel's function limit. (maxDuration is raised to 30s in vercel.json.)
-const TIME_BUDGET_MS = 22000;
+const TIME_BUDGET_MS = 25000;
 // Per-request hard timeout so one slow Karbon call can't hang the whole thing.
 const PER_REQUEST_MS = 9000;
 
@@ -53,17 +53,24 @@ export async function fetchKarbonTasks(opts = {}) {
 
   const start = Date.now();
 
-  // Page through a list endpoint within the time budget. Returns { items }.
-  // If Karbon rejects the FIRST page with a 400 (e.g. an unsupported $filter
-  // property), it throws BAD_REQUEST so the caller can retry unfiltered.
-  async function collect(initialUrl) {
-    let url = initialUrl;
+  // Page through a list endpoint within the time budget. Returns the items.
+  //
+  // IMPORTANT: Karbon's WorkItems endpoint does NOT return an @odata.nextLink
+  // here, so following nextLink stops after the first 100 items (that bug left
+  // the dashboard seeing only ~100 of ~300 work items — and, when sorted, only
+  // the future-dated ones, hiding all the overdue/current work). We paginate
+  // EXPLICITLY with $skip instead, which Karbon supports, and stop when a page
+  // comes back short (fewer than the page size) or empty.
+  //
+  // If Karbon rejects the FIRST page with a 400 (e.g. an unsupported $orderby
+  // property), it throws BAD_REQUEST so the caller can retry without it.
+  const PAGE_SIZE = 100;
+  async function collect(baseUrl) {
+    const sep = baseUrl.includes('?') ? '&' : '?';
     const items = [];
-    // Page through EVERYTHING (up to a generous safety ceiling). The real stop
-    // condition is the absence of an @odata.nextLink; the page cap and time
-    // budget only protect against a runaway loop / Vercel's function limit.
-    for (let page = 0; page < 200 && url; page++) {
+    for (let page = 0; page < 200; page++) {
       if (Date.now() - start > TIME_BUDGET_MS) break;
+      const url = baseUrl + sep + '$skip=' + (page * PAGE_SIZE);
 
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), PER_REQUEST_MS);
@@ -107,29 +114,30 @@ export async function fetchKarbonTasks(opts = {}) {
         throw err;
       }
 
-      items.push(...(json.value || json.WorkItems || json.Items || []));
-      url = json['@odata.nextLink'] || null;
+      const batch = json.value || json.WorkItems || json.Items || [];
+      items.push(...batch);
+      // Short (or empty) page => we've reached the end of the collection.
+      if (batch.length < PAGE_SIZE) break;
     }
     return items;
   }
 
-  // Collect ALL work, not a recent slice. We page through the entire WorkItems
-  // collection and drop completed/cancelled items in the reshape loop below.
+  // Collect ALL work, then drop completed/cancelled items in the reshape loop.
   //
-  // Why no server-side status filter: Karbon's WorkItems $filter only allows
-  // the operators eq, ge, le, and (NO "ne", NO "or") on the properties
-  // ClientKey, AssigneeEmailAddress, PrimaryStatus, WorkStatus, StartDate.
-  // "PrimaryStatus ne 'Completed'" is therefore illegal (it 400s), and you
-  // can't OR together the several active statuses in one query. So we pull the
-  // whole list (newest-first) and filter client-side — reliable and complete.
-  // A StartDate window is deliberately NOT applied: plenty of overdue work
-  // started years ago and must still be collected.
-  //   $orderby — allowed property: StartDate only.
+  // We sort by StartDate ASCENDING purely to give $skip a stable, deterministic
+  // order to page through (so no item is skipped or seen twice across pages).
+  // We do NOT sort descending: that put next-year's planned work first and, with
+  // only the first page fetched, hid every overdue/current item.
+  //
+  // No server-side status filter is used: Karbon's WorkItems $filter only allows
+  // eq/ge/le/and (NO "ne", NO "or"), so "PrimaryStatus ne 'Completed'" is illegal
+  // and the active statuses can't be OR'd. We pull the whole list and filter
+  // client-side — reliable and complete.
   const filteredUrl = KARBON_BASE + '/WorkItems' +
-    '?$orderby=' + encodeURIComponent('StartDate desc') +
-    '&$top=100';
+    '?$orderby=' + encodeURIComponent('StartDate') +
+    '&$top=' + PAGE_SIZE;
   // Plain fallback in case Karbon ever rejects the $orderby with a 400.
-  const plainUrl = KARBON_BASE + '/WorkItems?$top=100';
+  const plainUrl = KARBON_BASE + '/WorkItems?$top=' + PAGE_SIZE;
 
   let raw;
   let usedFallback = false;
