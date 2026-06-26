@@ -207,16 +207,13 @@ function normalize(data){
 
     let off = null, dateLabel = '';
     if (dueRaw){
-      let d = new Date(dueRaw);
-      const currentYear = new Date().getFullYear();
-
-      if (isNaN(d)) {
-          d = new Date(`${dueRaw} ${currentYear}`);
-      }
-      if (!isNaN(d) && d.getFullYear() !== currentYear) {
-          d.setFullYear(currentYear);
-      }
-
+      // Karbon stores due dates as CALENDAR dates at UTC midnight, e.g.
+      // "2026-06-26T00:00:00Z". Parsing that with new Date() and then snapping
+      // to local midnight shifts it back a day in any timezone behind UTC
+      // (Mountain Time), so work "due today" was being counted as 1 day overdue.
+      // Parse the Y-M-D parts straight into a LOCAL date to avoid the shift.
+      const m = String(dueRaw).match(/^(\d{4})-(\d{2})-(\d{2})/);
+      const d = m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date(dueRaw);
       if (!isNaN(d)){
         d.setHours(0,0,0,0);
         off = Math.round((d - today)/86400000);
@@ -227,7 +224,8 @@ function normalize(data){
     }
     let addedOff = null, addedLabel = '';
     if (addedRaw){
-      const a = new Date(addedRaw);
+      const m = String(addedRaw).match(/^(\d{4})-(\d{2})-(\d{2})/);
+      const a = m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date(addedRaw);
       if (!isNaN(a)){ a.setHours(0,0,0,0); addedOff = Math.round((a - today)/86400000); addedLabel = a.toLocaleDateString('en-US',{month:'short',day:'numeric'}); }
     }
     return { id, title, status, client, assignee, loggedHours, off, dateLabel, addedOff, addedLabel };
@@ -311,11 +309,12 @@ function buildView(){
   const overdue  = all.filter(t => t.off != null && t.off < 0);
   const dueWeek  = all.filter(t => t.off != null && t.off >= 0 && t.off <= 4);
   const todaySoon= all.filter(t => t.off != null && t.off >= 0 && t.off <= 1);
+  const dueToday = all.filter(t => t.off === 0);   // strictly today — matches Karbon's "Due Today"
   const addedWk  = all.filter(t => t.addedOff != null && t.addedOff >= -6).sort((a,b)=> (a.off??1e9)-(b.off??1e9));
   const nextWk   = all.filter(t => t.off != null && t.off >= 7 && t.off <= 11);
   const hoursTotal = TASKS.reduce((s,t)=> s + t.loggedHours, 0).toFixed(1);
   const unassigned = all.filter(t => !t.assignee);
-  return { all, overdue, dueWeek, todaySoon, addedWk, nextWk, hoursTotal, unassigned };
+  return { all, overdue, dueWeek, todaySoon, dueToday, addedWk, nextWk, hoursTotal, unassigned };
 }
 
 /* ============================================================
@@ -388,7 +387,7 @@ function render(){
   if (TAB === 'today'){
     panel.innerHTML = cardsHTML(v)
       + sectionHTML('tOver','Overdue','#8f2f1f', v.overdue, 'Nothing overdue. ✦')
-      + sectionHTML('tSoon','Up next · today & tomorrow','#7d5c12', v.todaySoon, 'Nothing due today or tomorrow.');
+      + sectionHTML('tSoon','Due today','#7d5c12', v.dueToday, 'Nothing due today.');
   } else if (TAB === 'week'){
     panel.innerHTML = cardsHTML(v)
       + sectionHTML('wOver','Overdue','#8f2f1f', v.overdue, 'Nothing overdue.')
