@@ -154,9 +154,11 @@ async function runWeeklyReport() {
       : `<div style="font-size:12.5px;color:#9a8f7f;padding:2px 0 6px;">${empty}</div>`);
 
   const mostOver = overdue[0];
-  let summary = `The week opens with ${pl(overdue.length, "overdue task")} and ${pl(dueWeek.length, "task")} due before the week is out, with ${hours}h logged so far. `;
+  let summary = `${pl(overdue.length, "overdue task")}, ${pl(dueWeek.length, "task")} due this week, and ${pl(nextWeek.length, "task")} due next week — ${hours}h logged so far. `;
   if (mostOver) summary += `The furthest behind is ${esc(mostOver.task)}${mostOver.client ? ` for ${esc(mostOver.client)}` : ""}, ${-mostOver.off} day${mostOver.off === -1 ? "" : "s"} past due. `;
-  summary += `${pl(addedWeek.length, "task")} ${addedWeek.length === 1 ? "was" : "were"} added this week, and ${pl(nextWeek.length, "task")} ${nextWeek.length === 1 ? "is" : "are"} already on next week's calendar.`;
+  summary += unassigned.length
+    ? `${pl(unassigned.length, "task")} ${unassigned.length === 1 ? "has" : "have"} no assignee and need to be allocated.`
+    : `Every active task has an assignee.`;
 
   const dateStr = today.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 
@@ -185,6 +187,7 @@ async function runWeeklyReport() {
           ${repSec("Due this week", "#7d5c12", dueWeek, (t) => `due ${t.dateLabel || ""}`, "Nothing due this week.")}
           ${repSec("Newly added this week", "#3f5636", addedWeek, (t) => `added ${t.addedLabel || ""}`, "Nothing added this week.")}
           ${repSec("Due next week", "#6f6657", nextWeek, (t) => `due ${t.dateLabel || ""}`, "Nothing on next week.")}
+          ${repSec("Missing assignee", "#a8714a", unassigned, () => "unassigned", "Everything is assigned.")}
         </div>
         <div style="padding:14px 24px;background:#f9f5ee;border-top:1px solid #efe6d6;font:11px monospace;color:#9a8f7f;text-align:center;">Auto-generated from Karbon · tasks with no assignee flagged "Undetermined"</div>
       </div>
