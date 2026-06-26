@@ -1,95 +1,121 @@
+/**
+ * Karbon Scheduling — Monday email  (replaces the Cloudflare Worker scheduled())
+ * ------------------------------------------------------------------------------
+ * Vercel Cron hits this endpoint on the schedule in vercel.json. It pulls
+ * Karbon, builds the weekly summary, and emails your boss via Resend.
+ *
+ * Extra env vars (in addition to the two Karbon ones in tasks.js):
+ *   RESEND_API_KEY   Resend api key
+ *   BOSS_EMAIL       where the Monday report goes      (e.g. boss@firm.com)
+ *   FROM_EMAIL       a VERIFIED Resend sender           (e.g. scheduling@yourfirm.com)
+ *   CRON_SECRET      any random string — Vercel sends it so only cron can fire this
+ *
+ * Test on demand without waiting for Monday:
+ *   curl -H "Authorization: Bearer YOUR_CRON_SECRET" https://<project>.vercel.app/api/weekly
+ */
+
+import { fetchKarbonTasks } from "./tasks.js";
+
 export default async function handler(req, res) {
-  // --- Auth gate: only Vercel Cron may trigger this ---
-  // Vercel automatically sends `Authorization: Bearer <CRON_SECRET>` on scheduled
-  // runs and when you press the "Run" button. Opening this URL in a browser sends
-  // no secret, so it will (correctly) return 401 — test with "Run", not the URL.
-  const authHeader = req.headers.authorization;
-  const expectedSecret = `Bearer ${process.env.CRON_SECRET}`;
+  // CORS — the dashboard's "Send report now" button calls this from the browser.
+  // (Vercel Cron calls it server-side and ignores these headers.)
+  const origin = process.env.ALLOWED_ORIGIN || "*";
+  res.setHeader("Access-Control-Allow-Origin", origin);
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept");
+  if (req.method === "OPTIONS") return res.status(200).end();
 
-  if (authHeader !== expectedSecret) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-
-  if (req.method !== 'GET' && req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
-
-  // --- Read + trim everything the job needs (strips stray paste whitespace) ---
-  const bearerToken = (process.env.KARBON_BEARER_TOKEN || '').trim();
-  const accessKey = (process.env.KARBON_ACCESS_KEY || '').trim();
-  const resendKey = (process.env.RESEND_API_KEY || '').trim();
-  const fromEmail = (process.env.FROM_EMAIL || '').trim();
-  const toEmail = (process.env.BOSS_EMAIL || '').trim();
-
-  // --- Fail loudly, naming exactly what's missing at runtime ---
-  const missing = [];
-  if (!bearerToken) missing.push('KARBON_BEARER_TOKEN');
-  if (!accessKey) missing.push('KARBON_ACCESS_KEY');
-  if (!resendKey) missing.push('RESEND_API_KEY');
-  if (!fromEmail) missing.push('FROM_EMAIL');
-  if (!toEmail) missing.push('BOSS_EMAIL');
-  if (missing.length > 0) {
-    return res.status(500).json({
-      error: 'Required environment variables missing at runtime',
-      missing,
-    });
+  // Vercel Cron sends  Authorization: Bearer ${CRON_SECRET}  automatically; the
+  // dashboard sends the same header from the secret you paste into it.
+  const expected = "Bearer " + (process.env.CRON_SECRET || "");
+  if (process.env.CRON_SECRET && req.headers.authorization !== expected) {
+    return res.status(401).json({ error: "Unauthorized" });
   }
 
   try {
-    // --- 1. Pull work items from Karbon ---
-    const karbonUrl = 'https://api.karbonhq.com/v3/WorkItems';
-    const karbonResponse = await fetch(karbonUrl, {
-      headers: {
-        'Authorization': `Bearer ${bearerToken}`,
-        'AccessKey': accessKey,
-        'Content-Type': 'application/json',
-      },
-    });
-
-    const karbonText = await karbonResponse.text();
-    if (!karbonResponse.ok) {
-      // Surface Karbon's real words instead of a generic message
-      throw new Error(`Karbon API error (${karbonResponse.status}): ${karbonText}`);
-    }
-
-    // Karbon list endpoints return an OData envelope: { value: [...] }, NOT a
-    // bare array. Pulling .value out keeps .map() from crashing the email build.
-    const parsed = JSON.parse(karbonText);
-    const tasks = Array.isArray(parsed) ? parsed : (parsed.value || []);
-
-    // --- 2. Build + send the weekly summary via Resend ---
-    const emailResponse = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${resendKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: fromEmail,
-        to: [toEmail],
-        subject: 'Your Weekly Karbon Summary',
-        html: `
-          <h1>Weekly Karbon Report</h1>
-          <p>Here is your task summary for the week:</p>
-          <ul>
-            ${tasks.map(t => `<li>${t.title || t.name || 'Unnamed Task'} - ${t.status || 'N/A'}</li>`).join('')}
-          </ul>
-          <p>Have a great week!</p>
-        `,
-      }),
-    });
-
-    if (!emailResponse.ok) {
-      const err = await emailResponse.text();
-      throw new Error(`Resend error (${emailResponse.status}): ${err}`);
-    }
-
-    return res.status(200).json({
-      message: 'Email sent successfully!',
-      taskCount: tasks.length,
-    });
-  } catch (error) {
-    console.error('Weekly job error:', error.message);
-    return res.status(500).json({ error: 'Weekly job failed', detail: error.message });
+    await runWeeklyReport();
+    return res.status(200).json({ ok: true });
+  } catch (err) {
+    // Vercel does NOT retry a failed cron — alert yourself instead.
+    await sendEmail(
+      process.env.FROM_EMAIL,
+      "⚠ Karbon weekly report FAILED",
+      "<pre>" + String(err.message || err) + "</pre>"
+    ).catch(() => {});
+    return res.status(500).json({ error: String(err.message || err) });
   }
+}
+
+async function sendEmail(to, subject, html) {
+  const send = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      "Authorization": "Bearer " + process.env.RESEND_API_KEY,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ from: process.env.FROM_EMAIL, to: [to], subject, html }),
+  });
+  if (!send.ok) throw new Error("Resend " + send.status + ": " + (await send.text()));
+}
+
+async function runWeeklyReport() {
+  const tasks = await fetchKarbonTasks();
+
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  const dayOff = (iso) => {
+    if (!iso) return null;
+    const d = new Date(iso);
+    if (isNaN(d)) return null;
+    d.setUTCHours(0, 0, 0, 0);
+    return Math.round((d - today) / 86400000);
+  };
+  const fmt = (iso) =>
+    iso ? new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
+
+  const rows = tasks.map((t) => ({ ...t, off: dayOff(t.due), addedOff: dayOff(t.added) }));
+  const overdue   = rows.filter((t) => t.off != null && t.off < 0).sort((a, b) => a.off - b.off);
+  const dueWeek   = rows.filter((t) => t.off != null && t.off >= 0 && t.off <= 4).sort((a, b) => a.off - b.off);
+  const addedWeek = rows.filter((t) => t.addedOff != null && t.addedOff >= -6);
+  const nextWeek  = rows.filter((t) => t.off != null && t.off >= 7 && t.off <= 11);
+  const hours     = rows.reduce((s, t) => s + (t.hours || 0), 0).toFixed(1);
+
+  const esc = (s) =>
+    String(s || "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  const who = (t) => (t.assignee && t.assignee.trim() ? esc(t.assignee) : "Undetermined — no one assigned");
+  const section = (title, list, label) =>
+    !list.length
+      ? ""
+      : `<h3 style="font:600 12px monospace;letter-spacing:.1em;text-transform:uppercase;color:#7d5c12;margin:22px 0 8px;">${title} · ${list.length}</h3>` +
+        list.map((t) =>
+          `<div style="border-left:3px solid #bd8a2c;padding:8px 0 8px 14px;margin-bottom:8px;">
+             <div style="font:600 14px sans-serif;">${esc(t.task)} <span style="color:#9a8f7f;font-weight:500;">· ${esc(t.client)}</span></div>
+             <div style="font:13px sans-serif;color:#5f574c;margin-top:3px;">${who(t)} · ${(t.hours || 0).toFixed(1)}h · ${label(t)}</div>
+           </div>`
+        ).join("");
+
+  const html = `
+    <div style="max-width:640px;margin:0 auto;font-family:sans-serif;color:#29251f;">
+      <div style="background:#c1632f;color:#fff;padding:22px 24px;border-radius:10px 10px 0 0;">
+        <div style="font:600 11px monospace;letter-spacing:.12em;text-transform:uppercase;opacity:.85;">Weekly schedule · Mountain Time</div>
+        <div style="font-size:21px;font-weight:700;margin-top:6px;">${overdue.length} overdue · ${dueWeek.length} due this week</div>
+      </div>
+      <div style="border:1px solid #efe6d6;border-top:none;border-radius:0 0 10px 10px;padding:6px 24px 22px;">
+        <p style="font:13.5px/1.6 sans-serif;color:#4f483e;">
+          The week opens with <b>${overdue.length}</b> overdue and <b>${dueWeek.length}</b> due before week's end, ${hours}h logged so far.
+          <b>${addedWeek.length}</b> added this week; <b>${nextWeek.length}</b> already on next week's calendar.
+        </p>
+        ${section("Overdue", overdue, (t) => (-t.off) + "d overdue")}
+        ${section("Due this week", dueWeek, (t) => "due " + fmt(t.due))}
+        ${section("Newly added this week", addedWeek, (t) => "added " + fmt(t.added))}
+        ${section("Due next week", nextWeek, (t) => "due " + fmt(t.due))}
+        <div style="margin-top:20px;font:11px monospace;color:#9a8f7f;text-align:center;">Auto-generated from Karbon · unassigned work flagged “Undetermined”.</div>
+      </div>
+    </div>`;
+
+  await sendEmail(
+    process.env.BOSS_EMAIL,
+    `Weekly schedule — ${overdue.length} overdue, ${dueWeek.length} due this week`,
+    html
+  );
 }

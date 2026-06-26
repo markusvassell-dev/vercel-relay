@@ -110,13 +110,33 @@ export async function fetchKarbonTasks(opts = {}) {
     return items;
   }
 
-  // 1) Try the efficient server-side filter (active work only).
-  // 2) If Karbon 400s it, retry WITHOUT the filter — the reshape loop below
-  //    drops completed/cancelled work anyway, so the result is the same.
-  const filteredUrl = KARBON_BASE + '/WorkItems?$filter=' +
-    encodeURIComponent("PrimaryStatus ne 'Completed' and PrimaryStatus ne 'Cancelled'") +
+  // Karbon's WorkItems endpoint is strict about query syntax (per the v3
+  // OpenAPI spec):
+  //   $filter  — allowed operators: eq, ge, le, and  (NO "ne", NO "or")
+  //              allowed properties: ClientKey, AssigneeEmailAddress,
+  //              PrimaryStatus, WorkStatus, StartDate
+  //   $orderby — allowed property: StartDate only
+  // The old filter used "PrimaryStatus ne 'Completed'", which Karbon 400s.
+  // That forced the unfiltered fallback, which returned the OLDEST 100 work
+  // items (all long-since Completed) — every one of which the reshape loop
+  // below then dropped, leaving zero tasks.
+  //
+  // The fix: pull only recent work via a LEGAL "StartDate ge" window, sorted
+  // newest-first, then drop completed/cancelled work in the reshape loop.
+  // OData DateTimeOffset literals are unquoted ISO-8601.
+  const sinceDate = new Date();
+  sinceDate.setMonth(sinceDate.getMonth() - 24);   // ~2 years of active work
+  const since = sinceDate.toISOString().slice(0, 10) + 'T00:00:00Z';
+
+  const filteredUrl = KARBON_BASE + '/WorkItems' +
+    '?$filter=' + encodeURIComponent('StartDate ge ' + since) +
+    '&$orderby=' + encodeURIComponent('StartDate desc') +
     '&$top=100';
-  const plainUrl = KARBON_BASE + '/WorkItems?$top=100';
+  // Fallback keeps the newest-first ordering so we never again page through the
+  // oldest (all-completed) items first.
+  const plainUrl = KARBON_BASE + '/WorkItems' +
+    '?$orderby=' + encodeURIComponent('StartDate desc') +
+    '&$top=100';
 
   let raw;
   let usedFallback = false;
@@ -152,7 +172,9 @@ export async function fetchKarbonTasks(opts = {}) {
       client: it.ClientName || it.PrimaryClientName || '',
       assignee: String(it.AssigneeName || it.AssignedToName || '').trim(),
       due: it.DueDate || it.DeadlineDate || null,
-      added: it.WorkCreatedDate || it.CreatedDate || null,
+      // The WorkItemSummaryDTO has no "created" field; StartDate is the closest
+      // proxy for when the work entered the schedule.
+      added: it.WorkCreatedDate || it.CreatedDate || it.StartDate || null,
       hours: Number(it.ActualHours || it.LoggedHours || 0) || 0,
       status,
     });
