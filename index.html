@@ -205,7 +205,7 @@ function normalize(data){
     const dueRaw    = it.dueDate ?? it.due ?? it.DueDate ?? null;
     const addedRaw  = it.added ?? it.createdDate ?? it.WorkCreatedDate ?? null;
 
-    let off = null, dateLabel = '';
+    let off = null, dateLabel = '', dueMs = null;
     if (dueRaw){
       // Karbon stores due dates as CALENDAR dates at UTC midnight, e.g.
       // "2026-06-26T00:00:00Z". Parsing that with new Date() and then snapping
@@ -216,7 +216,8 @@ function normalize(data){
       const d = m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date(dueRaw);
       if (!isNaN(d)){
         d.setHours(0,0,0,0);
-        off = Math.round((d - today)/86400000);
+        dueMs = d.getTime();                 // kept so buildView can re-derive
+        off = Math.round((d - today)/86400000); // the day-offset against TODAY
         dateLabel = d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
       } else {
         dateLabel = String(dueRaw);
@@ -228,7 +229,7 @@ function normalize(data){
       const a = m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date(addedRaw);
       if (!isNaN(a)){ a.setHours(0,0,0,0); addedOff = Math.round((a - today)/86400000); addedLabel = a.toLocaleDateString('en-US',{month:'short',day:'numeric'}); }
     }
-    return { id, title, status, client, assignee, loggedHours, off, dateLabel, addedOff, addedLabel };
+    return { id, title, status, client, assignee, loggedHours, off, dueMs, dateLabel, addedOff, addedLabel };
   })
   // ACTIVE ONLY — never render completed / canceled / archived work, even if the
   // backend lets one through. The Workload tab additionally limits the people
@@ -305,16 +306,48 @@ function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, c => ({'&':'&amp
 
 /* derived collections used across tabs */
 function buildView(){
-  const all = TASKS.map(decorate).sort((a,b)=> (a.off==null?1e9:a.off) - (b.off==null?1e9:b.off));
-  const overdue  = all.filter(t => t.off != null && t.off < 0);
-  const dueWeek  = all.filter(t => t.off != null && t.off >= 0 && t.off <= 4);
+  // DYNAMIC: re-derive every task's day-offset against TODAY on each render, so
+  // as the date advances, items slide into the overdue bucket automatically
+  // (no reload needed) and the week window below moves with the calendar.
+  const today = startOfToday();
+  const todayMs = today.getTime();
+  const reDated = TASKS.map(t => {
+    const off = (t.dueMs != null) ? Math.round((t.dueMs - todayMs)/86400000) : t.off;
+    return Object.assign({}, t, { off });
+  });
+
+  const all = reDated.map(decorate).sort((a,b)=> (a.off==null?1e9:a.off) - (b.off==null?1e9:b.off));
+
+  // Current week = Monday → Sunday (ISO), relative to today. weekStartOff is the
+  // day-offset to Monday (≤ 0); weekEndOff is the offset to Sunday (≥ 0).
+  const dow = (today.getDay() + 6) % 7;     // 0 = Mon … 6 = Sun
+  const weekStartOff = -dow;
+  const weekEndOff   = 6 - dow;
+
+  // Look back exactly ONE calendar month from today (dynamic): the day-offset to
+  // "one month ago" is ~ -28 to -31 depending on the month.
+  const monthAgo = new Date(today); monthAgo.setMonth(monthAgo.getMonth() - 1);
+  const monthStartOff = Math.round((monthAgo.getTime() - todayMs) / 86400000);
+
+  // OVERDUE — past-due work whose due date falls within the last MONTH (no older).
+  // This is the set your boss's rollups use, and it is DUPLICATED into both the
+  // Today and This Week tabs (per the reporting rule), most-overdue first.
+  const overdue  = all.filter(t => t.off != null && t.off < 0 && t.off >= monthStartOff);
+  // DUE TODAY — strictly today.
+  const dueToday = all.filter(t => t.off === 0);
+  // DUE THIS WEEK — strictly later this week (after today, through Sunday).
+  const dueWeek  = all.filter(t => t.off != null && t.off >= 1 && t.off <= weekEndOff);
   const todaySoon= all.filter(t => t.off != null && t.off >= 0 && t.off <= 1);
-  const dueToday = all.filter(t => t.off === 0);   // strictly today — matches Karbon's "Due Today"
+
   const addedWk  = all.filter(t => t.addedOff != null && t.addedOff >= -6).sort((a,b)=> (a.off??1e9)-(b.off??1e9));
-  const nextWk   = all.filter(t => t.off != null && t.off >= 7 && t.off <= 11);
+  const nextWk   = all.filter(t => t.off != null && t.off >= weekEndOff + 1 && t.off <= weekEndOff + 7);
   const hoursTotal = TASKS.reduce((s,t)=> s + t.loggedHours, 0).toFixed(1);
   const unassigned = all.filter(t => !t.assignee);
-  return { all, overdue, dueWeek, todaySoon, dueToday, addedWk, nextWk, hoursTotal, unassigned };
+
+  // Tab rollups: overdue is intentionally counted in BOTH (duplicated).
+  const todayRollup = overdue.length + dueToday.length;   // e.g. 12 + 6 = 18
+  const weekRollup  = overdue.length + dueWeek.length;    // e.g. 12 + 3 = 15
+  return { all, overdue, dueWeek, todaySoon, dueToday, addedWk, nextWk, hoursTotal, unassigned, todayRollup, weekRollup };
 }
 
 /* ============================================================
